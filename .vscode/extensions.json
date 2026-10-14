@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "ms-vscode-remote.remote-containers",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "ms-vscode.vscode-typescript-next",
+    "usernamehw.errorlens",
+    "eamodio.gitlens",
+    "aaron-bond.better-comments",
+    "dsznajder.es7-react-js-snippets",
+    "wix.vscode-import-cost",
+    "tamasfe.even-better-toml"
+  ]
+}

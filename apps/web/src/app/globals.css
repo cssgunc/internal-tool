@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+/* CSSG brand colors, used as accents on a light, neutral layout (UI/UX design brief).
+   Final values come from the UI team's style guide. */
+@theme {
+  --color-navy: #0b1b33;
+  --color-teal: #16dbbc;
+  --color-sky: #ace7ff;
+}

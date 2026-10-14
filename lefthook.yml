@@ -1,0 +1,30 @@
+# Git hooks, installed automatically by `bun install` (see the "prepare" script).
+# Commit: format + lint only the files you're committing (fast).
+# Push: type check everything (slower). CI runs all of it again on every PR.
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{ts,tsx,js,mjs,cjs,json,md,css,yml,yaml}"
+      run: bunx prettier --write --ignore-unknown {staged_files}
+      stage_fixed: true
+    lint-api:
+      root: "apps/api/"
+      glob: "*.{ts,tsx}"
+      run: bunx eslint --fix {staged_files}
+      stage_fixed: true
+    lint-web:
+      root: "apps/web/"
+      glob: "*.{ts,tsx}"
+      run: bunx eslint --fix {staged_files}
+      stage_fixed: true
+    lint-shared:
+      root: "packages/shared/"
+      glob: "*.{ts,tsx}"
+      run: bunx eslint --fix {staged_files}
+      stage_fixed: true
+
+pre-push:
+  commands:
+    typecheck:
+      run: bun run typecheck:all

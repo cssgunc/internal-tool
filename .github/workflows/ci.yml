@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check:all
+      - run: bun run lint:all
+      - run: bun run typecheck:all
+      - run: bun run test:all
+      - run: bun run build:all
+      # Production dependencies only: dev tools (linters, drizzle-kit) never ship.
+      - run: bun audit --prod
