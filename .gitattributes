@@ -1,0 +1,12 @@
+# Keep LF line endings everywhere, including on Windows checkouts.
+# (Windows line endings in shell scripts and Dockerfiles break the devcontainer build.)
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary

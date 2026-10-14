@@ -1,0 +1,29 @@
+{
+  "name": "@internal-tool/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "lint": "eslint .",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "echo \"No web tests yet\""
+  },
+  "dependencies": {
+    "@internal-tool/shared": "workspace:*",
+    "hono": "^4.13.13",
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@internal-tool/api": "workspace:*",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint-config-next": "^16.4.0",
+    "tailwindcss": "^4.3.3"
+  }
+}
