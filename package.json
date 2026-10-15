@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "prepare": "lefthook install",
+    "prepare": "lefthook install --force",
     "dev": "bun run --parallel dev:api dev:web",
     "dev:web": "bun run --filter '@internal-tool/web' dev",
     "dev:api": "bun run --filter '@internal-tool/api' dev",
