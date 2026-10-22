@@ -25,7 +25,10 @@ export function didAttend(meetingStart: Date, checkedInAt: Date): boolean {
   return checkIn >= start && easternCalendarDate(meetingStart) === easternCalendarDate(checkedInAt);
 }
 
-/** The caller supplies the newer submission for the same email as incoming. */
+/**
+ * The caller supplies the newer submission for the same email as incoming. Timestamps are
+ * not compared, so only call this at write time, when incoming is the submission being saved.
+ */
 export function mergeCheckIns<T extends { attended: boolean }>(existing: T, incoming: T): T {
   return { ...incoming, attended: existing.attended || incoming.attended };
 }
