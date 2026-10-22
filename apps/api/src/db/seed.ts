@@ -23,7 +23,7 @@ const positionSeeds = [
     seatLimit: 1,
     perProject: true,
   },
-  { name: "Developer (backend / frontend / fullstack)", category: "project", grantsExec: false },
+  { name: "Developer", category: "project", grantsExec: false },
   { name: "UI", category: "project", grantsExec: false },
   {
     name: "Education Student",

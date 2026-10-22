@@ -1,5 +1,5 @@
 {
-  "id": "7d2bf93c-92cd-4c49-9c57-663609e6373f",
+  "id": "c3b470d6-03da-46db-bb65-e9643a3cdf6d",
   "prevId": "4cfe33e3-9077-44b3-88b6-d9f02561748c",
   "version": "7",
   "dialect": "postgresql",
@@ -179,7 +179,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "positions_seat_limit_positive": {
+          "name": "positions_seat_limit_positive",
+          "value": "\"positions\".\"seat_limit\" IS NULL OR \"positions\".\"seat_limit\" > 0"
+        }
+      },
       "isRLSEnabled": false
     }
   },

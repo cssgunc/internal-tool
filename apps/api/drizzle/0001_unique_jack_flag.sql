@@ -10,5 +10,6 @@ CREATE TABLE "positions" (
 	"is_archived" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "positions_name_unique" UNIQUE("name")
+	CONSTRAINT "positions_name_unique" UNIQUE("name"),
+	CONSTRAINT "positions_seat_limit_positive" CHECK ("positions"."seat_limit" IS NULL OR "positions"."seat_limit" > 0)
 );
