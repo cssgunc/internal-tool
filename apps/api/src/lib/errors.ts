@@ -46,6 +46,8 @@ export const handleError: ErrorHandler = (error, c) => {
     return c.json(errorResponse(code, message), status);
   }
 
+  // Anything else, including HTTPExceptions with a status not in httpErrors (e.g. a 413
+  // from a body-limit middleware), becomes a 500. Add the status above if one starts showing up.
   // Diagnostic details stay in server logs, including when NODE_ENV=production.
   console.error(error);
   return c.json(errorResponse("INTERNAL", "An unexpected error occurred."), 500);
