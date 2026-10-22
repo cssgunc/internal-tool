@@ -65,6 +65,7 @@ Run from the repo root.
 | `bun run db:generate`   | Generate a migration from schema changes |
 | `bun run db:migrate`    | Apply migrations to the database         |
 | `bun run db:studio`     | Browse the database in Drizzle Studio    |
+| `bun run db:seed`       | Insert the default position records      |
 
 ## Repo layout
 
