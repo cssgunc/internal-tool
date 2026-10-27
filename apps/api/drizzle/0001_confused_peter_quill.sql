@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS citext;--> statement-breakpoint
 CREATE TYPE "public"."member_status" AS ENUM('active');--> statement-breakpoint
 CREATE TABLE "members" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
