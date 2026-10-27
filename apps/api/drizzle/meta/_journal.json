@@ -15,6 +15,20 @@
       "when": 1792594240267,
       "tag": "0001_confused_peter_quill",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793061366897,
+      "tag": "0002_dusty_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793061435701,
+      "tag": "0003_enable_citext",
+      "breakpoints": true
     }
   ]
 }
