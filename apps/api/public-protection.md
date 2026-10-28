@@ -61,6 +61,8 @@ and [Siteverify contract](https://developers.cloudflare.com/turnstile/get-starte
 Hono's Bun adapter and ignores **all** forwarding headers, including `X-Real-IP`.
 This handles direct/local/private callers without trusting client-supplied headers.
 Bun passes its server as the second argument to the exported fetch handler.
+Socket mode identifies the immediate peer; behind a reverse proxy, that peer is
+the proxy rather than the original visitor.
 
 Set `CLIENT_IP_SOURCE=railway` only for a deployment whose untrusted HTTP traffic
 enters through Railway's public HTTP edge. Railway's
@@ -72,6 +74,30 @@ custom domains. That clarification is a Railway bot response, so the documented
 header contract and the deployment boundary remain the basis of this design.
 The helper reads only this single header, never `X-Forwarded-For`, `Forwarded`,
 `CF-Connecting-IP`, a client-supplied host, or an arbitrary hop count.
+
+The existing web configuration (`apps/web/next.config.ts`) forwards `/api/*` to
+the API. With the intended Vercel web and Railway API hosting, the request path is
+**browser → Vercel/Next.js → Railway's public HTTP edge → Bun/Hono**. Railway's
+`X-Real-IP` may therefore identify Vercel's upstream proxy rather than the original
+visitor. A valid header and passing unit tests do not establish original-visitor
+identity across this chain. The deployed forwarding behavior has not been verified;
+do not claim per-visitor rate limiting is production-ready based on this helper alone.
+
+Before applying the helpers to real routes, verify the intended production topology
+in a controlled deployment:
+
+- Use two clients with distinct public IP addresses and confirm their resolved
+  limiter keys and budgets remain independent through the web proxy.
+- Send spoofed and duplicate forwarding headers through every supported ingress
+  path. Confirm client-selected values cannot change a visitor's limiter key or
+  bypass an exhausted budget.
+- Inventory public, private, direct, and TCP access to the listener, and restrict
+  or authenticate any path that bypasses the trusted forwarding chain. Record the
+  verified header contract and selected `CLIENT_IP_SOURCE` before enabling routes.
+
+If the original visitor cannot be identified safely, resolve the forwarding trust
+contract before claiming per-visitor protection. Do not add an unverified forwarded
+header fallback or infer trust from a header name or a private peer address.
 
 **Railway mode does not authenticate the immediate peer.** Private-network and TCP
 proxy traffic bypass the public HTTP edge. Every service/person able to reach the
@@ -111,7 +137,8 @@ as a global budget. Fixed windows permit bursts near a window boundary.
 
 ## TDD follow-up
 
-The lead should remove the implemented ‼️ markers in TDD 2.3 (Shared Form Behavior)
-and TDD 3 (Public Forms & Spam Protection), linked from issue #18. Note that these
-are reusable primitives only: public-route wiring and UI fields are future work.
-The Notion Tickets board Owner also needs updating; the GitHub issue is self-assigned.
+The linked Notion TDD sections and Tickets board have not been verified for this
+update. The lead must confirm the requirements and completion status before removing
+‼️ markers in TDD 2.3 (Shared Form Behavior) and TDD 3 (Public Forms & Spam Protection)
+or updating the board Owner. These are reusable primitives only: public-route wiring
+and UI fields are future work. The GitHub issue is self-assigned.
