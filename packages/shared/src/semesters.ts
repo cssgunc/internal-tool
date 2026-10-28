@@ -15,7 +15,8 @@ export const semesterSchema = z.object({
   isCurrent: z.boolean(),
 });
 
-// GET /api/v1/semesters: newest semester first (TDD 3.2 Lists).
+// GET /api/v1/semesters: one page, newest semester first (TDD 3.2 Lists).
+// total counts every semester, not just the ones on this page.
 export const semesterListSchema = z.object({
   items: z.array(semesterSchema),
   total: z.number().int().nonnegative(),
