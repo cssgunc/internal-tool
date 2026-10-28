@@ -2,7 +2,7 @@
 
 ## The flow for one ticket
 
-1. **Pick up a ticket** at the weekly meeting. Tickets are GitHub Issues. Each one links to the TDD sections it implements.
+1. **Pick up a ticket** at the weekly meeting. Tickets are GitHub Issues. Each one links to the TDD sections it implements. **Self-assign the issue before you start** (and put your name as Owner on the Notion Tickets board), so two people never take the same ticket.
 2. **Update `main` and branch off it:**
 
    ```bash
@@ -32,6 +32,7 @@ The TDD marks anything not built yet with ‼️. When your PR builds something 
 2. Run `bun run db:generate` to create a migration in `apps/api/drizzle/`.
 3. Run `bun run db:migrate` to apply it locally.
 4. Commit the schema change **and** the generated migration together.
+5. **Migration conflicts:** if another PR that adds a migration merges before yours, delete your generated migration files, rebase on `main`, and run `bun run db:generate` again. Drizzle's migration journal can't be merged by hand.
 
 ## Conventions
 
