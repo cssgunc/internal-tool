@@ -9,6 +9,7 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/internal_tool
       API_URL: http://localhost:8787
+      TURNSTILE_SECRET_KEY: 1x0000000000000000000000000000000AA
     depends_on:
       db:
         condition: service_healthy
