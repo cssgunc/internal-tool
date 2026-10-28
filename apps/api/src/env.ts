@@ -5,6 +5,8 @@ import { z } from "zod";
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(8787),
+  // Public frontend origin used for links, not the API's own address.
+  WEB_URL: z.url({ protocol: /^https?$/ }).default("http://localhost:3000"),
   // Optional so the API (and its tests) can start without a database.
   // src/db/index.ts throws if it's missing when the database is actually used.
   DATABASE_URL: z.url().optional(),
