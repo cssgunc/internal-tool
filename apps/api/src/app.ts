@@ -7,6 +7,9 @@ import { health } from "./routes/health";
 import { createInterestMeetingRoutes, createPublicCheckinRoutes } from "./routes/interest-meetings";
 import { createInterestMeetingService } from "./services/interest-meetings";
 import type { InterestMeetingService } from "./services/interest-meetings";
+import { createPublicInterestRoutes } from "./routes/public-interest";
+import { createInterestService } from "./services/interest";
+import type { InterestService } from "./services/interest";
 
 // All API routes live under /api/v1 (TDD 3.2). Better Auth will mount its own
 // routes under /api/auth when auth is added.
@@ -14,14 +17,16 @@ import type { InterestMeetingService } from "./services/interest-meetings";
 // Tests create an isolated instance so test routes exercise the real error setup.
 export function createApp({
   meetingService = createInterestMeetingService(),
-}: { meetingService?: InterestMeetingService } = {}) {
+  interestService = createInterestService(),
+}: { meetingService?: InterestMeetingService; interestService?: InterestService } = {}) {
   return new Hono()
     .onError(handleError)
     .notFound(handleNotFound)
     .basePath("/api/v1")
     .route("/health", health)
     .route("/interest-meetings", createInterestMeetingRoutes(meetingService))
-    .route("/public/checkin", createPublicCheckinRoutes(meetingService));
+    .route("/public/checkin", createPublicCheckinRoutes(meetingService))
+    .route("/public/interest", createPublicInterestRoutes(interestService));
 }
 
 export const app = createApp();
