@@ -13,6 +13,24 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    # Tests that need a database (auth, for one) run against this Postgres, the same
+    # version as the devcontainer and production.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: internal_tool
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d internal_tool"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/internal_tool
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -20,6 +38,8 @@ jobs:
       - run: bun run format:check:all
       - run: bun run lint:all
       - run: bun run typecheck:all
+      # Applies the committed migrations, so CI also checks they run cleanly.
+      - run: bun run db:migrate
       - run: bun run test:all
       - run: bun run build:all
       # Production dependencies only: dev tools (linters, drizzle-kit) never ship.
