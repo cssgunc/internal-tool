@@ -1,4 +1,5 @@
-import type { FormDefinition } from "../../../../../../packages/shared/src/forms/definition";
+import { notFound } from "next/navigation";
+import type { FormDefinition } from "@internal-tool/shared";
 import { FormRenderer } from "@/components/FormRenderer";
 
 const newMemberApplicationMock: FormDefinition = {
@@ -18,7 +19,7 @@ const newMemberApplicationMock: FormDefinition = {
           type: "select",
           label: "Which track are you applying for?",
           required: true,
-          options: ["Project", "Education", "Both"],
+          options: ["project", "education", "both"],
         },
       ],
     },
@@ -27,7 +28,7 @@ const newMemberApplicationMock: FormDefinition = {
       title: "Project Track Questions",
       showIf: {
         field: "track",
-        in: ["Project", "Both"],
+        in: ["project", "both"],
       },
       fields: [
         {
@@ -44,7 +45,7 @@ const newMemberApplicationMock: FormDefinition = {
       title: "Education Track Questions",
       showIf: {
         field: "track",
-        in: ["Education", "Both"],
+        in: ["education", "both"],
       },
       fields: [
         {
@@ -70,7 +71,12 @@ const newMemberApplicationMock: FormDefinition = {
     },
   ],
 };
+
 export default function DevFormsPage() {
+  if (process.env.NODE_ENV === "production") {
+    notFound();
+  }
+
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
       <h1 className="text-2xl font-bold text-gray-900">New-Member Application (TDD 2.3)</h1>

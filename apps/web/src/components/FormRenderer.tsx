@@ -1,24 +1,27 @@
 "use client";
 
 import React, { useState } from "react";
-import type { FormDefinition, FormField } from "../../../../packages/shared/src/forms/definition";
 import {
+  filterVisibleAnswers,
   isSectionVisible,
   validateAnswers,
+  type FormDefinition,
+  type FormField,
   type ValidationErrors,
-} from "../../../../packages/shared/src/forms/validator";
+} from "@internal-tool/shared";
 
 interface FormRendererProps {
   definition: FormDefinition;
-  onSubmitSuccess?: (answers: Record<string, string>) => void;
+  onSubmitSuccess?: (answers: Record<string, unknown>) => void;
 }
 
 const SUPPORTED_TYPES = new Set(["short_text", "long_text", "email", "select"]);
 
 export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps) {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
-  const [submittedPayload, setSubmittedPayload] = useState<Record<string, string> | null>(null);
+  const [submittedPayload, setSubmittedPayload] = useState<Record<string, unknown> | null>(null);
+
   const handleFieldChange = (fieldId: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [fieldId]: value }));
 
@@ -30,6 +33,7 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
       });
     }
   };
+
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const result = validateAnswers(definition, answers);
@@ -39,12 +43,14 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
       setSubmittedPayload(null);
     } else {
       setErrors({});
-      setSubmittedPayload(answers);
+      const cleanedAnswers = filterVisibleAnswers(definition, answers);
+      setSubmittedPayload(cleanedAnswers);
       if (onSubmitSuccess) {
-        onSubmitSuccess(answers);
+        onSubmitSuccess(cleanedAnswers);
       }
     }
   };
+
   const renderFieldInput = (field: FormField) => {
     if (!SUPPORTED_TYPES.has(field.type)) {
       return (
@@ -54,22 +60,32 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
       );
     }
 
-    const value = answers[field.id] ?? "";
+    const value = (answers[field.id] as string) ?? "";
     const hasError = Boolean(errors[field.id]);
+    const errorId = `${field.id}-error`;
     const baseClasses =
       "mt-1 block w-full rounded-md border px-3 py-2 text-sm shadow-sm transition-colors focus:outline-none";
     const statusClasses = hasError
       ? "border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500"
       : "border-gray-300 focus:border-blue-600 focus:ring-1 focus:ring-blue-600";
+
+    const commonProps = {
+      id: field.id,
+      name: field.id,
+      required: field.required,
+      "aria-required": field.required,
+      "aria-invalid": hasError,
+      "aria-describedby": hasError ? errorId : undefined,
+      className: `${baseClasses} ${statusClasses}`,
+    };
+
     if (field.type === "short_text" || field.type === "email") {
       return (
         <input
-          id={field.id}
-          name={field.id}
+          {...commonProps}
           type={field.type === "email" ? "email" : "text"}
           value={value}
           onChange={(e) => handleFieldChange(field.id, e.target.value)}
-          className={`${baseClasses} ${statusClasses}`}
         />
       );
     }
@@ -77,12 +93,10 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
     if (field.type === "long_text") {
       return (
         <textarea
-          id={field.id}
-          name={field.id}
+          {...commonProps}
           rows={4}
           value={value}
           onChange={(e) => handleFieldChange(field.id, e.target.value)}
-          className={`${baseClasses} ${statusClasses}`}
         />
       );
     }
@@ -90,11 +104,9 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
     if (field.type === "select") {
       return (
         <select
-          id={field.id}
-          name={field.id}
+          {...commonProps}
           value={value}
           onChange={(e) => handleFieldChange(field.id, e.target.value)}
-          className={`${baseClasses} ${statusClasses}`}
         >
           <option value="">Select an option</option>
           {field.options?.map((option) => (
@@ -108,6 +120,7 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
 
     return null;
   };
+
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
       {definition.sections.map((section) => {
@@ -122,24 +135,27 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
           >
             <legend className="px-2 text-base font-semibold text-gray-900">{section.title}</legend>
             <div className="mt-4 space-y-4">
-              {section.fields.map((field) => (
-                <div key={field.id}>
-                  <label htmlFor={field.id} className="block text-sm font-medium text-gray-700">
-                    {field.label}
-                    {field.required && (
-                      <span className="ml-1 text-red-500" aria-hidden="true">
-                        *
-                      </span>
+              {section.fields.map((field) => {
+                const errorId = `${field.id}-error`;
+                return (
+                  <div key={field.id}>
+                    <label htmlFor={field.id} className="block text-sm font-medium text-gray-700">
+                      {field.label}
+                      {field.required && (
+                        <span className="ml-1 text-red-500" aria-hidden="true">
+                          *
+                        </span>
+                      )}
+                    </label>
+                    {renderFieldInput(field)}
+                    {errors[field.id] && (
+                      <p id={errorId} className="mt-1 text-xs text-red-600" role="alert">
+                        {errors[field.id]}
+                      </p>
                     )}
-                  </label>
-                  {renderFieldInput(field)}
-                  {errors[field.id] && (
-                    <p className="mt-1 text-xs text-red-600" role="alert">
-                      {errors[field.id]}
-                    </p>
-                  )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           </fieldset>
         );

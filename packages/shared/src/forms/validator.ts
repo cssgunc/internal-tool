@@ -11,77 +11,94 @@ export function isSectionVisible(section: FormSection, answers: Record<string, u
   if (!section.showIf) {
     return true;
   }
-  const { field, in: allowedValues } = section.showIf;
-  const currentAnswer = answers[field];
+  const answerVal = answers[section.showIf.field];
+  return section.showIf.in.includes(answerVal as string);
+}
 
-  if (typeof currentAnswer !== "string") {
+function hasValue(val: unknown): boolean {
+  if (val === undefined || val === null) {
     return false;
   }
-
-  return allowedValues.includes(currentAnswer);
-}
-
-function countWords(value: string): number {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return 0;
+  if (typeof val === "string") {
+    return val.trim().length > 0;
   }
-  return trimmed.split(/\s+/).length;
+  if (Array.isArray(val)) {
+    return val.length > 0;
+  }
+  return true;
 }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export function filterVisibleAnswers(
+  definition: FormDefinition,
+  answers: Record<string, unknown>
+): Record<string, unknown> {
+  const visibleAnswers: Record<string, unknown> = {};
+
+  for (const section of definition.sections) {
+    if (!isSectionVisible(section, answers)) {
+      continue;
+    }
+    for (const field of section.fields) {
+      if (field.id in answers && hasValue(answers[field.id])) {
+        visibleAnswers[field.id] = answers[field.id];
+      }
+    }
+  }
+
+  return visibleAnswers;
+}
 
 export function validateAnswers(
   definition: FormDefinition,
   answers: Record<string, unknown>
 ): ValidationResult {
   const errors: ValidationErrors = {};
+
   for (const section of definition.sections) {
     if (!isSectionVisible(section, answers)) {
       continue;
     }
+
     for (const field of section.fields) {
-      const value = answers[field.id];
-      const hasValue =
-        value !== undefined &&
-        value !== null &&
-        (typeof value === "string" ? value.trim().length > 0 : true);
-      // 1. Required check
-      if (field.required && !hasValue) {
+      const val = answers[field.id];
+      const answered = hasValue(val);
+
+      if (field.required && !answered) {
         errors[field.id] = `${field.label} is required.`;
         continue;
       }
 
-      // If the field is empty and not required, skip further format checks
-      if (!hasValue) {
+      if (!answered) {
         continue;
       }
-      const stringValue = typeof value === "string" ? value : String(value);
 
-      // 2. Email format check
-      if (field.type === "email") {
-        if (!EMAIL_REGEX.test(stringValue.trim())) {
+      if (field.type === "email" && typeof val === "string") {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(val.trim())) {
           errors[field.id] = "Please enter a valid email address.";
-        }
-      }
-      // 3. Select validation
-      if (field.type === "select") {
-        if (!field.options || !field.options.includes(stringValue)) {
-          errors[field.id] = "Please select a valid option.";
-        }
-      }
-      // 4. maxLength check
-      if (field.maxLength !== undefined) {
-        if (stringValue.length > field.maxLength) {
-          errors[field.id] = `Cannot exceed ${field.maxLength} characters.`;
+          continue;
         }
       }
 
-      // 5. maxWords check
-      if (field.maxWords !== undefined) {
-        const words = countWords(stringValue);
-        if (words > field.maxWords) {
-          errors[field.id] = `Cannot exceed ${field.maxWords} words.`;
+      if (field.type === "select" && field.options) {
+        if (!field.options.includes(val as string)) {
+          errors[field.id] = "Please select a valid option.";
+          continue;
+        }
+      }
+
+      if (typeof val === "string") {
+        if (field.maxLength !== undefined && val.length > field.maxLength) {
+          errors[field.id] = `Cannot exceed ${field.maxLength} characters.`;
+          continue;
+        }
+
+        if (field.maxWords !== undefined) {
+          const wordCount = val.trim().split(/\s+/).filter(Boolean).length;
+          if (wordCount > field.maxWords) {
+            errors[field.id] = `Cannot exceed ${field.maxWords} words.`;
+            continue;
+          }
         }
       }
     }
