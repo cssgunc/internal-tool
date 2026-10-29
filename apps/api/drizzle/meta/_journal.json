@@ -8,6 +8,13 @@
       "when": 1791998324867,
       "tag": "0000_loud_zeigeist",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793206775041,
+      "tag": "0001_short_wild_child",
+      "breakpoints": true
     }
   ]
 }

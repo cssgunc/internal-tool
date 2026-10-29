@@ -4,6 +4,7 @@ import type { ErrorResponse } from "@internal-tool/shared";
 import { handleError, handleNotFound } from "./lib/errors";
 import type { ApiErrorStatus } from "./lib/errors";
 import { health } from "./routes/health";
+import { emailTemplateRoutes } from "./routes/email-templates";
 
 // All API routes live under /api/v1 (TDD 3.2). Better Auth will mount its own
 // routes under /api/auth when auth is added.
@@ -14,7 +15,8 @@ export function createApp() {
     .onError(handleError)
     .notFound(handleNotFound)
     .basePath("/api/v1")
-    .route("/health", health);
+    .route("/health", health)
+    .route("/email-templates", emailTemplateRoutes);
 }
 
 export const app = createApp();
