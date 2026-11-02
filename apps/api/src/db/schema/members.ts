@@ -9,6 +9,7 @@ import {
   customType,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { user } from "./auth";
 
 const citext = customType<{ data: string }>({
   dataType() {
@@ -20,7 +21,9 @@ export const memberStatus = pgEnum("member_status", ["active", "alumni"]);
 
 export const members = pgTable("members", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: text("user_id").unique(),
+  userId: text("user_id")
+    .unique()
+    .references(() => user.id, { onDelete: "set null" }),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   displayName: text("display_name"),

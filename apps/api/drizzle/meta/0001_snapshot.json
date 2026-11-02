@@ -1,5 +1,5 @@
 {
-  "id": "101c4739-d8e8-4082-9a91-e016250d2dcf",
+  "id": "c3b470d6-03da-46db-bb65-e9643a3cdf6d",
   "prevId": "4cfe33e3-9077-44b3-88b6-d9f02561748c",
   "version": "7",
   "dialect": "postgresql",
@@ -94,8 +94,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.members": {
-      "name": "members",
+    "public.positions": {
+      "name": "positions",
       "schema": "",
       "columns": {
         "id": {
@@ -105,143 +105,86 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "first_name": {
-          "name": "first_name",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "last_name": {
-          "name": "last_name",
-          "type": "text",
+        "category": {
+          "name": "category",
+          "type": "position_category",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
         },
-        "display_name": {
-          "name": "display_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "email": {
-          "name": "email",
-          "type": "citext",
+        "grants_exec": {
+          "name": "grants_exec",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true
         },
-        "other_emails": {
-          "name": "other_emails",
-          "type": "citext[]",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'{}'::citext[]"
-        },
-        "pronouns": {
-          "name": "pronouns",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "grad_year": {
-          "name": "grad_year",
+        "seat_limit": {
+          "name": "seat_limit",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
-        "majors": {
-          "name": "majors",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'{}'::text[]"
-        },
-        "minors": {
-          "name": "minors",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'{}'::text[]"
-        },
-        "github_username": {
-          "name": "github_username",
-          "type": "citext",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "linkedin_url": {
-          "name": "linkedin_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "portfolio_url": {
-          "name": "portfolio_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_superuser": {
-          "name": "is_superuser",
+        "per_project": {
+          "name": "per_project",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "default": false
         },
-        "status": {
-          "name": "status",
-          "type": "member_status",
-          "typeSchema": "public",
+        "requires_account": {
+          "name": "requires_account",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": "'active'"
+          "default": true
         },
-        "invited_at": {
-          "name": "invited_at",
+        "is_archived": {
+          "name": "is_archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "now()"
         },
-        "activated_at": {
-          "name": "activated_at",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "members_user_id_unique": {
-          "name": "members_user_id_unique",
+        "positions_name_unique": {
+          "name": "positions_name_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "user_id"
-          ]
-        },
-        "members_email_unique": {
-          "name": "members_email_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "email"
-          ]
-        },
-        "members_github_username_unique": {
-          "name": "members_github_username_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "github_username"
+            "name"
           ]
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "positions_seat_limit_positive": {
+          "name": "positions_seat_limit_positive",
+          "value": "\"positions\".\"seat_limit\" IS NULL OR \"positions\".\"seat_limit\" > 0"
+        }
+      },
       "isRLSEnabled": false
     }
   },
@@ -254,11 +197,13 @@
         "spring"
       ]
     },
-    "public.member_status": {
-      "name": "member_status",
+    "public.position_category": {
+      "name": "position_category",
       "schema": "public",
       "values": [
-        "active"
+        "exec",
+        "project",
+        "education"
       ]
     }
   },
