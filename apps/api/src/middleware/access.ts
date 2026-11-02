@@ -40,7 +40,7 @@ export function requireAccess(minimumRole: AccessRole): MiddlewareHandler<Access
 }
 
 export function requireSelfOrExec(
-  getTargetMemberId: (c: AccessContext) => string | undefined = (c) => c.req.param("memberId")
+  getTargetMemberId: (c: AccessContext) => string | undefined = (c) => c.req.param("id")
 ): MiddlewareHandler<AccessEnv> {
   return async (c, next) => {
     const member = c.get("member");

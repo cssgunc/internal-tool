@@ -221,7 +221,7 @@ function accessTestApp(middleware: MiddlewareHandler<AccessEnv>, member?: Access
     if (member) c.set("member", member);
     await next();
   });
-  app.get("/members/:memberId", middleware, (c) => c.text("allowed"));
+  app.get("/members/:id", middleware, (c) => c.text("allowed"));
   return app;
 }
 
