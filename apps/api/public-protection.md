@@ -6,7 +6,7 @@ shared form schema, then verify Turnstile before any side effect:
 
 ```ts
 // packages/shared: add these fields to the future form's Zod schema.
-import { honeypot } from "@internal-tool/shared";
+import { honeypot, isHoneypotFilled } from "@internal-tool/shared";
 // z.object({ ..., website: honeypot, turnstileToken: z.string() })
 
 // apps/api: imports relative to src/routes/.
@@ -24,10 +24,14 @@ routes.post(
 );
 ```
 
-The honeypot field must be omitted or exactly empty (including no whitespace).
-The future UI should hide it from people and assistive technology, and disable
-autofill. It is a spam signal, not an authentication mechanism. Malformed bodies
-and honeypot values use the existing `VALIDATION` envelope with field errors.
+The honeypot schema accepts any string (up to 2048 characters), so a filled
+honeypot passes validation. In the handler, when `isHoneypotFilled(body.website)`
+is true, the route returns its normal success response and skips every side
+effect (no database writes, no emails). It does not return a validation error,
+so bots don't learn they were caught (TDD 3.2). The future UI should hide the
+field from people and assistive technology, and disable autofill. It is a spam
+signal, not an authentication mechanism. Malformed bodies use the existing
+`VALIDATION` envelope with field errors.
 
 `verifyTurnstile` reads JSON `turnstileToken` from Hono's cached body and calls
 Cloudflare Siteverify on every submission. Missing, blank, oversized, rejected,

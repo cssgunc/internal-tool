@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { Hono } from "hono";
 import { z } from "zod";
-import { errorResponseSchema, honeypot } from "@internal-tool/shared";
+import { errorResponseSchema, honeypot, isHoneypotFilled } from "@internal-tool/shared";
 import { app, createApp } from "../src/app";
 import { env } from "../src/env";
 import { clientIp } from "../src/lib/client-ip";
@@ -304,7 +304,7 @@ describe("rate limit", () => {
         ...json(body),
         headers: { "Content-Type": "application/json", "X-Real-IP": "203.0.113.1" },
       });
-    expect((await send({ website: "spam", turnstileToken: "token" })).status).toBe(400);
+    expect((await send({ website: 0, turnstileToken: "token" })).status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
     expect((await send({ website: "", turnstileToken: "token" })).status).toBe(200);
     expect((await send({ website: "", turnstileToken: "token" })).status).toBe(429);
@@ -329,22 +329,29 @@ describe("rate limit", () => {
 });
 
 describe("honeypot", () => {
-  it("composes with JSON validation and returns the standard field error", async () => {
+  it("accepts any string so a filled honeypot looks like a normal submission", async () => {
     const api = createApp().post(
       "/test/honeypot",
       validate("json", z.object({ website: honeypot })),
       (c) => c.json(c.req.valid("json"))
     );
-    for (const body of [{}, { website: "" }]) {
+    for (const body of [{}, { website: "" }, { website: "spam" }, { website: " " }]) {
       expect((await api.request("/api/v1/test/honeypot", json(body))).status).toBe(200);
     }
-    for (const website of ["spam", " ", null, 0, false, [], {}]) {
+    for (const website of [null, 0, false, [], {}, "x".repeat(2049)]) {
       const res = await api.request("/api/v1/test/honeypot", json({ website }));
       expect(res.status).toBe(400);
       expect(errorResponseSchema.parse(await res.json()).error).toMatchObject({
         code: "VALIDATION",
         fields: { website: expect.any(String) },
       });
+    }
+  });
+
+  it("isHoneypotFilled is true only for a non-empty string", () => {
+    for (const value of ["spam", " "]) expect(isHoneypotFilled(value)).toBe(true);
+    for (const value of [undefined, null, "", 0, false, [], {}]) {
+      expect(isHoneypotFilled(value)).toBe(false);
     }
   });
 
