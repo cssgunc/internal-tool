@@ -4,5 +4,6 @@ export * from "./enums";
 export * from "./errors";
 export * from "./access";
 export * from "./forms/definition";
+export * from "./forms/validator";
 export * from "./lists";
 export * from "./semesters";
