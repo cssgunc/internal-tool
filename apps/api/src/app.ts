@@ -8,6 +8,7 @@ import type { AppEnv } from "./lib/session";
 import { authRoutes } from "./routes/auth";
 import { health } from "./routes/health";
 import { me } from "./routes/me";
+import { semesters } from "./routes/semesters";
 
 // All API routes live under /api/v1 (TDD 3.2). Better Auth mounts its own routes
 // under /api/auth. Every /api/v1 route gets the signed-in user (or null) from
@@ -22,6 +23,7 @@ export function createApp() {
     .basePath("/api/v1")
     .use(sessionMiddleware)
     .route("/health", health)
+    .route("/semesters", semesters)
     .route("/me", me);
 }
 

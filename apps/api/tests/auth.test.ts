@@ -143,6 +143,7 @@ describe("auth:create-user script", () => {
           NODE_ENV: "production",
           BETTER_AUTH_SECRET: "x".repeat(32),
           BETTER_AUTH_URL: "https://admin.example.org",
+          TURNSTILE_SECRET_KEY: "fake-real-secret",
         },
       }
     );
