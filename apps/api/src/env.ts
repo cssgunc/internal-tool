@@ -10,6 +10,8 @@ export const envSchema = z
     // Optional so the API (and its tests) can start without a database.
     // src/db/index.ts throws if it's missing when the database is actually used.
     DATABASE_URL: z.url().optional(),
+    // Public frontend origin used for links, not the API's own address.
+    WEB_URL: z.url({ protocol: /^https?$/ }).default("http://localhost:3000"),
     TURNSTILE_SECRET_KEY: z.string().trim().min(1).optional(),
     // Opt in only when the listener is behind Railway's public HTTP edge.
     CLIENT_IP_SOURCE: z.enum(["socket", "railway"]).default("socket"),
