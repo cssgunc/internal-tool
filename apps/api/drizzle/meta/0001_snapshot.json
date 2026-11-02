@@ -1,5 +1,5 @@
 {
-  "id": "28d5fedd-b2cf-4cd5-a452-87106ebcb397",
+  "id": "c3b470d6-03da-46db-bb65-e9643a3cdf6d",
   "prevId": "4cfe33e3-9077-44b3-88b6-d9f02561748c",
   "version": "7",
   "dialect": "postgresql",
@@ -94,8 +94,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.interest_checkins": {
-      "name": "interest_checkins",
+    "public.positions": {
+      "name": "positions",
       "schema": "",
       "columns": {
         "id": {
@@ -105,175 +105,51 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "semester_id": {
-          "name": "semester_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "meeting_id": {
-          "name": "meeting_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "email": {
-          "name": "email",
-          "type": "citext",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "first_name": {
-          "name": "first_name",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "last_name": {
-          "name": "last_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "interests": {
-          "name": "interests",
-          "type": "interest_kind[]",
+        "category": {
+          "name": "category",
+          "type": "position_category",
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
         },
-        "attended": {
-          "name": "attended",
+        "grants_exec": {
+          "name": "grants_exec",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seat_limit": {
+          "name": "seat_limit",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "per_project": {
+          "name": "per_project",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "default": false
         },
-        "submitted_at": {
-          "name": "submitted_at",
-          "type": "timestamp with time zone",
+        "requires_account": {
+          "name": "requires_account",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "default": true
         },
-        "cleared_at": {
-          "name": "cleared_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
+        "is_archived": {
+          "name": "is_archived",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "interest_checkins_semester_email_unique": {
-          "name": "interest_checkins_semester_email_unique",
-          "columns": [
-            {
-              "expression": "semester_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "email",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "interest_checkins_semester_id_semesters_id_fk": {
-          "name": "interest_checkins_semester_id_semesters_id_fk",
-          "tableFrom": "interest_checkins",
-          "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "interest_checkins_meeting_id_interest_meetings_id_fk": {
-          "name": "interest_checkins_meeting_id_interest_meetings_id_fk",
-          "tableFrom": "interest_checkins",
-          "tableTo": "interest_meetings",
-          "columnsFrom": [
-            "meeting_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.interest_meetings": {
-      "name": "interest_meetings",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "semester_id": {
-          "name": "semester_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "starts_at": {
-          "name": "starts_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "checkin_token": {
-          "name": "checkin_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
+          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -291,33 +167,24 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "interest_meetings_semester_id_semesters_id_fk": {
-          "name": "interest_meetings_semester_id_semesters_id_fk",
-          "tableFrom": "interest_meetings",
-          "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "interest_meetings_checkin_token_unique": {
-          "name": "interest_meetings_checkin_token_unique",
+        "positions_name_unique": {
+          "name": "positions_name_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "checkin_token"
+            "name"
           ]
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "positions_seat_limit_positive": {
+          "name": "positions_seat_limit_positive",
+          "value": "\"positions\".\"seat_limit\" IS NULL OR \"positions\".\"seat_limit\" > 0"
+        }
+      },
       "isRLSEnabled": false
     }
   },
@@ -330,13 +197,13 @@
         "spring"
       ]
     },
-    "public.interest_kind": {
-      "name": "interest_kind",
+    "public.position_category": {
+      "name": "position_category",
       "schema": "public",
       "values": [
+        "exec",
         "project",
-        "education",
-        "exec"
+        "education"
       ]
     }
   },
