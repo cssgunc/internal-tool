@@ -16,7 +16,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "bun run src/db/seed.ts",
-    "auth:create-user": "bun run src/scripts/create-user.ts"
+    "auth:create-user": "bun run src/scripts/create-user.ts",
+    "email:test": "bun src/scripts/send-test-email.ts"
   },
   "dependencies": {
     "@internal-tool/shared": "workspace:*",
