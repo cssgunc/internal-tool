@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
+import QRCode from "qrcode";
 import type {
   CreateInterestMeetingRequest,
   CreateInterestMeetingResponse,
@@ -77,7 +78,13 @@ export function createInterestMeetingService(
         startsAt: new Date(request.startsAt),
         checkinToken,
       });
-      return { id, checkinUrl: new URL(`/checkin/${checkinToken}`, webUrl).toString() };
+      const checkinUrl = new URL(`/checkin/${checkinToken}`, webUrl).toString();
+      const qrSvg = await QRCode.toString(checkinUrl, {
+        type: "svg",
+        errorCorrectionLevel: "M",
+        margin: 2,
+      });
+      return { id, checkinUrl, qrSvg };
     },
 
     async getPublicMeeting(token: string): Promise<PublicCheckinResponse> {

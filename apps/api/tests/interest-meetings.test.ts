@@ -46,7 +46,7 @@ function setup(currentSemester: string | null = semesterId) {
 }
 
 describe("interest meeting endpoints", () => {
-  it("creates a meeting in the current semester and returns only its id and page URL", async () => {
+  it("creates a meeting in the current semester and returns its id, page URL, and QR SVG", async () => {
     const { client, meetings } = setup();
     const res = await client.api.v1["interest-meetings"].$post({
       json: { ...request, title: " Interest meeting " },
@@ -54,7 +54,7 @@ describe("interest meeting endpoints", () => {
     expect(res.status).toBe(201);
     const body = await res.json();
     const parsed = createInterestMeetingResponseSchema.parse(body);
-    expect(Object.keys(body).sort()).toEqual(["checkinUrl", "id"]);
+    expect(Object.keys(body).sort()).toEqual(["checkinUrl", "id", "qrSvg"]);
     expect(meetings).toHaveLength(1);
     const meeting = meetings[0]!;
     expect(parsed.id).toBe(meeting.id);
@@ -64,6 +64,9 @@ describe("interest meeting endpoints", () => {
     expect(meeting.createdBy).toBeUndefined();
     expect(meeting.checkinToken).toMatch(/^[a-f0-9]{64}$/);
     expect(parsed.checkinUrl).toBe(`https://cssg.example/checkin/${meeting.checkinToken}`);
+    expect(parsed.qrSvg).toContain("<svg");
+    expect(parsed.qrSvg).toContain("</svg>");
+    expect(parsed.qrSvg).toContain("viewBox");
   });
 
   it("generates distinct random tokens for separate meetings", async () => {
