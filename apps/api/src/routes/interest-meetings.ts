@@ -8,7 +8,9 @@ import { validate } from "../lib/validation";
 import type { InterestMeetingService } from "../services/interest-meetings";
 
 export function createInterestMeetingRoutes(service: InterestMeetingService) {
-  // TODO(auth): restrict meeting creation to exec and set created_by from the session.
+  // TODO(auth): minimum access is `exec` (TDD 3.2). Once sessions are linked to members,
+  // set created_by from the session and pass the member to createMeeting as the audit
+  // actor; until then the audit entry is logged as System.
   return new Hono().post("/", validate("json", createInterestMeetingRequestSchema), async (c) => {
     const meeting = await service.createMeeting(c.req.valid("json"));
     return c.json(createInterestMeetingResponseSchema.parse(meeting), 201);

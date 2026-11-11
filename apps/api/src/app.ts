@@ -5,6 +5,7 @@ import { handleError, handleNotFound } from "./lib/errors";
 import type { ApiErrorStatus } from "./lib/errors";
 import { sessionMiddleware } from "./lib/session";
 import type { AppEnv } from "./lib/session";
+import { auditLogRoutes } from "./routes/audit-log";
 import { authRoutes } from "./routes/auth";
 import { health } from "./routes/health";
 import { me } from "./routes/me";
@@ -36,7 +37,8 @@ export function createApp({
     .route("/me", me)
     .route("/interest-meetings", createInterestMeetingRoutes(meetingService))
     .route("/public/checkin", createPublicCheckinRoutes(meetingService))
-    .route("/public/interest", createPublicInterestRoutes(interestService));
+    .route("/public/interest", createPublicInterestRoutes(interestService))
+    .route("/audit-log", auditLogRoutes);
 }
 
 export const app = createApp();
