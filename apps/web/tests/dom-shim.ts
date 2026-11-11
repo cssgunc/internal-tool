@@ -248,9 +248,19 @@ export class SimpleDocument {
     this.documentElement = new SimpleElement("HTML");
     this.head = new SimpleElement("HEAD");
     this.body = new SimpleElement("BODY");
+    this.documentElement.ownerDocument = this;
+    this.head.ownerDocument = this;
+    this.body.ownerDocument = this;
     this.documentElement.appendChild(this.head);
     this.documentElement.appendChild(this.body);
     this.defaultView = globalThis;
+  }
+
+  reset(): void {
+    this.head.childNodes = [];
+    this.body.childNodes = [];
+    this._listeners = {};
+    this.activeElement = null;
   }
 
   createElement(tag: string): SimpleElement {
@@ -320,39 +330,37 @@ interface SavedGlobals {
 }
 
 let savedGlobals: SavedGlobals | null = null;
-let savedFetch: typeof globalThis.fetch = globalThis.fetch;
+const originalFetch: typeof globalThis.fetch = globalThis.fetch;
 
 export function mockFetch(
   fn: (url: string | URL | Request, opts?: RequestInit) => Promise<Response>
 ): void {
-  savedFetch = globalThis.fetch;
   (globalThis as unknown as { fetch: unknown }).fetch = fn;
 }
 
 export function restoreFetch(): void {
-  (globalThis as unknown as { fetch: unknown }).fetch = savedFetch;
+  (globalThis as unknown as { fetch: typeof globalThis.fetch }).fetch = originalFetch;
 }
 
 export function installDomShim(): SimpleDocument {
-  if (savedGlobals) {
-    return (globalThis as unknown as { document: SimpleDocument }).document;
-  }
-
   const target = globalThis as unknown as Record<string, unknown>;
 
-  savedGlobals = {
-    document: target.document,
-    window: target.window,
-    HTMLElement: target.HTMLElement,
-    HTMLDivElement: target.HTMLDivElement,
-    HTMLScriptElement: target.HTMLScriptElement,
-    HTMLInputElement: target.HTMLInputElement,
-    HTMLButtonElement: target.HTMLButtonElement,
-    HTMLFormElement: target.HTMLFormElement,
-    HTMLIFrameElement: target.HTMLIFrameElement,
-    IS_REACT_ACT_ENVIRONMENT: target.IS_REACT_ACT_ENVIRONMENT,
-  };
+  if (!savedGlobals) {
+    savedGlobals = {
+      document: target.document,
+      window: target.window,
+      HTMLElement: target.HTMLElement,
+      HTMLDivElement: target.HTMLDivElement,
+      HTMLScriptElement: target.HTMLScriptElement,
+      HTMLInputElement: target.HTMLInputElement,
+      HTMLButtonElement: target.HTMLButtonElement,
+      HTMLFormElement: target.HTMLFormElement,
+      HTMLIFrameElement: target.HTMLIFrameElement,
+      IS_REACT_ACT_ENVIRONMENT: target.IS_REACT_ACT_ENVIRONMENT,
+    };
+  }
 
+  // Always instantiate a fresh document with clean head and body nodes
   const doc = new SimpleDocument();
   target.IS_REACT_ACT_ENVIRONMENT = true;
   target.document = doc;
@@ -368,7 +376,13 @@ export function installDomShim(): SimpleDocument {
   return doc;
 }
 
+export function resetDom(): SimpleDocument {
+  return installDomShim();
+}
+
 export function uninstallDomShim() {
+  restoreFetch();
+  delete (globalThis as Record<string, unknown>).turnstile;
   if (!savedGlobals) return;
   const target = globalThis as unknown as Record<string, unknown>;
   target.document = savedGlobals.document;

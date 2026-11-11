@@ -62,7 +62,7 @@ describe("Exec Route Cleanliness & Redirection (R4)", () => {
   });
 
   it("/exec/interest-meetings page source code retains '// TODO(auth)' comment (R4)", () => {
-    const filePath = resolve(process.cwd(), "src/app/exec/interest-meetings/page.tsx");
+    const filePath = resolve(import.meta.dir, "../src/app/exec/interest-meetings/page.tsx");
     const content = readFileSync(filePath, "utf-8");
 
     expect(content).toContain(

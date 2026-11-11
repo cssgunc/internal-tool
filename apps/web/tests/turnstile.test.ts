@@ -19,14 +19,25 @@ interface WindowWithTurnstile {
   };
 }
 
+function setNodeEnv(val: string | undefined): void {
+  const env = process.env as Record<string, string | undefined>;
+  if (val !== undefined) {
+    env["NODE_ENV"] = val;
+  } else {
+    delete env["NODE_ENV"];
+  }
+}
+
 describe("Turnstile Component (R1 & R6)", () => {
   let doc: ReturnType<typeof installDomShim>;
   let container: SimpleElement;
   let root: Root;
-  let originalEnv: typeof process.env;
+  let originalNodeEnv: string | undefined;
+  let originalSiteKey: string | undefined;
 
   beforeEach(() => {
-    originalEnv = { ...process.env };
+    originalNodeEnv = process.env.NODE_ENV;
+    originalSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
     doc = installDomShim();
     container = doc.createElement("div");
     root = createRoot(container as unknown as HTMLElement);
@@ -37,7 +48,12 @@ describe("Turnstile Component (R1 & R6)", () => {
       root.unmount();
     });
     uninstallDomShim();
-    process.env = originalEnv;
+    setNodeEnv(originalNodeEnv);
+    if (originalSiteKey !== undefined) {
+      process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = originalSiteKey;
+    } else {
+      delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+    }
   });
 
   it("loads the Cloudflare Turnstile script exactly once and renders the widget", async () => {
@@ -231,107 +247,129 @@ describe("Turnstile Component (R1 & R6)", () => {
   });
 
   it("falls back to the default test key in dev/test environment (R6)", async () => {
+    const prevSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+    const prevNodeEnv = process.env.NODE_ENV;
     delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-    Object.defineProperty(process.env, "NODE_ENV", {
-      value: "test",
-      configurable: true,
-      writable: true,
-    });
+    setNodeEnv("test");
 
-    let renderedSiteKey = "";
-    const win = globalThis as unknown as WindowWithTurnstile;
-    win.turnstile = {
-      render: (_c, params) => {
-        renderedSiteKey = params.sitekey;
-        return "widget-dev";
-      },
-      reset: () => {},
-      remove: () => {},
-    };
+    try {
+      let renderedSiteKey = "";
+      const win = globalThis as unknown as WindowWithTurnstile;
+      win.turnstile = {
+        render: (_c, params) => {
+          renderedSiteKey = params.sitekey;
+          return "widget-dev";
+        },
+        reset: () => {},
+        remove: () => {},
+      };
 
-    await act(async () => {
-      root.render(
-        React.createElement(Turnstile, {
-          onSuccess: () => {},
-        })
-      );
-    });
+      await act(async () => {
+        root.render(
+          React.createElement(Turnstile, {
+            onSuccess: () => {},
+          })
+        );
+      });
 
-    const script = doc.getElementById("cloudflare-turnstile-script");
-    await act(async () => {
-      script?.dispatchEvent({ type: "load" });
-    });
+      const script = doc.getElementById("cloudflare-turnstile-script");
+      await act(async () => {
+        script?.dispatchEvent({ type: "load" });
+      });
 
-    expect(renderedSiteKey).toBe("1x00000000000000000000AA");
+      expect(renderedSiteKey).toBe("1x00000000000000000000AA");
+    } finally {
+      if (prevSiteKey !== undefined) {
+        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = prevSiteKey;
+      } else {
+        delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+      }
+      setNodeEnv(prevNodeEnv);
+    }
   });
 
   it("in production, missing NEXT_PUBLIC_TURNSTILE_SITE_KEY renders role='alert' and halts script loading (R6)", async () => {
-    Object.defineProperty(process.env, "NODE_ENV", {
-      value: "production",
-      configurable: true,
-      writable: true,
-    });
+    const prevSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+    const prevNodeEnv = process.env.NODE_ENV;
+    setNodeEnv("production");
     delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
-    await act(async () => {
-      root.render(
-        React.createElement(Turnstile, {
-          onSuccess: () => {},
-        })
+    try {
+      await act(async () => {
+        root.render(
+          React.createElement(Turnstile, {
+            onSuccess: () => {},
+          })
+        );
+      });
+
+      // Script should NOT be created
+      const script = doc.getElementById("cloudflare-turnstile-script");
+      expect(script).toBeNull();
+
+      // Alert banner should be rendered
+      const alertEl = container.querySelector(
+        (n) =>
+          n.role === "alert" || n.textContent.includes("Verification is temporarily unavailable")
       );
-    });
-
-    // Script should NOT be created
-    const script = doc.getElementById("cloudflare-turnstile-script");
-    expect(script).toBeNull();
-
-    // Alert banner should be rendered
-    const alertEl = container.querySelector(
-      (n) => n.role === "alert" || n.textContent.includes("Verification is temporarily unavailable")
-    );
-    expect(alertEl).not.toBeNull();
-    expect(alertEl?.textContent).toContain(
-      "Verification is temporarily unavailable. Please contact the administrator."
-    );
+      expect(alertEl).not.toBeNull();
+      expect(alertEl?.textContent).toContain(
+        "Verification is temporarily unavailable. Please contact the administrator."
+      );
+    } finally {
+      if (prevSiteKey !== undefined) {
+        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = prevSiteKey;
+      } else {
+        delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+      }
+      setNodeEnv(prevNodeEnv);
+    }
   });
 
   it("in production, provided NEXT_PUBLIC_TURNSTILE_SITE_KEY is used properly without alert banner (R6)", async () => {
-    Object.defineProperty(process.env, "NODE_ENV", {
-      value: "production",
-      configurable: true,
-      writable: true,
-    });
+    const prevSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+    const prevNodeEnv = process.env.NODE_ENV;
+    setNodeEnv("production");
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAAAPROD_KEY";
 
-    let renderedSiteKey = "";
-    const win = globalThis as unknown as WindowWithTurnstile;
-    win.turnstile = {
-      render: (_c, params) => {
-        renderedSiteKey = params.sitekey;
-        return "widget-prod";
-      },
-      reset: () => {},
-      remove: () => {},
-    };
+    try {
+      let renderedSiteKey = "";
+      const win = globalThis as unknown as WindowWithTurnstile;
+      win.turnstile = {
+        render: (_c, params) => {
+          renderedSiteKey = params.sitekey;
+          return "widget-prod";
+        },
+        reset: () => {},
+        remove: () => {},
+      };
 
-    await act(async () => {
-      root.render(
-        React.createElement(Turnstile, {
-          onSuccess: () => {},
-        })
-      );
-    });
+      await act(async () => {
+        root.render(
+          React.createElement(Turnstile, {
+            onSuccess: () => {},
+          })
+        );
+      });
 
-    const script = doc.getElementById("cloudflare-turnstile-script");
-    expect(script).not.toBeNull();
+      const script = doc.getElementById("cloudflare-turnstile-script");
+      expect(script).not.toBeNull();
 
-    await act(async () => {
-      script?.dispatchEvent({ type: "load" });
-    });
+      await act(async () => {
+        script?.dispatchEvent({ type: "load" });
+      });
 
-    expect(renderedSiteKey).toBe("0x4AAAAAAAPROD_KEY");
+      expect(renderedSiteKey).toBe("0x4AAAAAAAPROD_KEY");
 
-    const alertEl = container.querySelector((n) => n.role === "alert");
-    expect(alertEl).toBeNull();
+      const alertEl = container.querySelector((n) => n.role === "alert");
+      expect(alertEl).toBeNull();
+    } finally {
+      if (prevSiteKey !== undefined) {
+        process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = prevSiteKey;
+      } else {
+        delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+      }
+      setNodeEnv(prevNodeEnv);
+    }
   });
 });
