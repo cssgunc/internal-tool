@@ -6,6 +6,7 @@ import type {
   Member,
   MemberList,
   MemberListQuery,
+  UpdateMemberRequest,
 } from "@internal-tool/shared";
 import type { db } from "../db";
 import { members } from "../db/schema";
@@ -117,5 +118,23 @@ export async function createMember(
     .returning(memberColumns)
     .catch(rethrowMemberWriteError);
   if (!row) throw new Error("Member insert returned no row.");
+  return serializeMember(row);
+}
+
+export async function updateMember(
+  id: string,
+  request: UpdateMemberRequest,
+  database?: Pick<typeof db, "update">
+): Promise<Member> {
+  const conn = database ?? (await import("../db")).db;
+  // Drizzle omits undefined values; explicit null clears nullable columns.
+  // The strict request schema permits only editable fields, never auth or status fields.
+  const [row] = await conn
+    .update(members)
+    .set(request)
+    .where(eq(members.id, id))
+    .returning(memberColumns)
+    .catch(rethrowMemberWriteError);
+  if (!row) throw new ApiError(404, "NOT_FOUND", "Member not found.");
   return serializeMember(row);
 }
