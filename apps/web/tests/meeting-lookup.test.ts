@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import type { Mock } from "bun:test";
 import React, { Suspense } from "react";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import MeetingCheckinPage from "../src/app/checkin/[token]/page";
 
 interface WindowWithTurnstile {
@@ -12,10 +13,10 @@ interface WindowWithTurnstile {
 }
 
 describe("Meeting lookup states and error recovery", () => {
-  let fetchSpy: ReturnType<typeof spyOn>;
+  let fetchSpy: Mock<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>;
 
   beforeEach(() => {
-    fetchSpy = spyOn(globalThis, "fetch");
+    fetchSpy = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected API request"));
     const win = globalThis as unknown as WindowWithTurnstile;
     win.turnstile = {
       render: () => "widget-mock-id",
@@ -25,7 +26,6 @@ describe("Meeting lookup states and error recovery", () => {
   });
 
   afterEach(() => {
-    cleanup();
     fetchSpy.mockRestore();
   });
 
@@ -230,7 +230,7 @@ describe("Meeting lookup states and error recovery", () => {
     expect(screen.queryByText("Meeting Alpha")).toBeNull();
   });
 
-  it("ignores late responses from previous tokens if token changed or component unmounted", async () => {
+  it("ignores late responses from previous tokens", async () => {
     let resolveToken1!: (res: Response) => void;
     const token1Promise = new Promise<Response>((resolve) => {
       resolveToken1 = resolve;

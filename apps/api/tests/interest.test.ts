@@ -79,8 +79,9 @@ function setup(
     interestService: service,
     interestLimiter: options.interestLimiter,
   });
+  let address = "192.0.2.1";
   const mockServer = {
-    requestIP: () => ({ address: "127.0.0.1", family: "IPv4", port: 1234 }),
+    requestIP: () => ({ address, family: "IPv4", port: 1234 }),
   };
   const request = (input: string | Request | URL, init?: RequestInit) =>
     app.request(input, init, mockServer);
@@ -91,6 +92,9 @@ function setup(
     request,
     records,
     storageCalls: () => storageCalls,
+    setIp(value: string) {
+      address = value;
+    },
     setClock(value: Date) {
       clock = value;
     },
@@ -286,21 +290,75 @@ describe("POST /api/v1/public/interest", () => {
     expect("turnstileToken" in saved).toBe(false);
   });
 
-  it("enforces per-IP rate limiting on public interest submissions", async () => {
-    const { client } = setup({ interestLimiter: rateLimit({ windowMs: 60_000, max: 10 }) });
-    for (let i = 0; i < 10; i++) {
-      const res = await client.api.v1.public.interest.$post({ json: submission });
+  it("admits 100 students sharing an IP, blocks request 101, and resets after one minute", async () => {
+    let now = 0;
+    spyOn(performance, "now").mockImplementation(() => now);
+    const cloudflare = spyOn(globalThis, "fetch");
+    const { client, records, storageCalls, setIp } = setup();
+    for (let i = 0; i < 100; i++) {
+      const res = await client.api.v1.public.interest.$post({
+        json: {
+          ...submission,
+          token: "meeting-token",
+          email: `student-${i}@example.com`,
+          turnstileToken: `token-${i}`,
+        },
+      });
       expect(res.status).toBe(201);
     }
+    expect(records.size).toBe(100);
+    expect([...records.values()].every((record) => record.attended)).toBe(true);
+    expect(cloudflare).toHaveBeenCalledTimes(100);
+    const callsBeforeLimit = storageCalls();
     const limited = await client.api.v1.public.interest.$post({ json: submission });
     expect(limited.status).toBe(429);
-    expect(limited.headers.get("Retry-After")).toBeDefined();
+    expect(limited.headers.get("Retry-After")).toBe("60");
     const body = errorResponseSchema.parse(await limited.json());
     expect(body.error.code).toBe("RATE_LIMITED");
+    expect(storageCalls()).toBe(callsBeforeLimit);
+    expect(cloudflare).toHaveBeenCalledTimes(100);
+
+    setIp("192.0.2.2");
+    expect((await client.api.v1.public.interest.$post({ json: submission })).status).toBe(201);
+    setIp("192.0.2.1");
+    now = 59_999;
+    const stillLimited = await client.api.v1.public.interest.$post({ json: submission });
+    expect(stillLimited.status).toBe(429);
+    expect(stillLimited.headers.get("Retry-After")).toBe("1");
+    now = 60_000;
+    expect((await client.api.v1.public.interest.$post({ json: submission })).status).toBe(201);
+  });
+
+  it("runs an injected limiter before parsing JSON, honeypot handling, or verification", async () => {
+    const cloudflare = spyOn(globalThis, "fetch");
+    const { request, storageCalls } = setup({
+      interestLimiter: rateLimit({ windowMs: 60_000, max: 1 }),
+    });
+    const post = (body: string) =>
+      request("/api/v1/public/interest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+    expect((await post(JSON.stringify({ website: "bot.example" }))).status).toBe(201);
+    const parse = spyOn(Request.prototype, "json");
+    for (const body of [
+      "{",
+      JSON.stringify({ website: "bot.example" }),
+      JSON.stringify(submission),
+    ]) {
+      const res = await post(body);
+      expect(res.status).toBe(429);
+      expect(errorResponseSchema.parse(await res.json()).error.code).toBe("RATE_LIMITED");
+      expect(res.headers.get("Retry-After")).toBe("60");
+    }
+    expect(parse).not.toHaveBeenCalled();
+    expect(cloudflare).not.toHaveBeenCalled();
+    expect(storageCalls()).toBe(0);
   });
 
   it("verifies Turnstile tokens and rejects failed or missing tokens", async () => {
-    const { client, records } = setup();
+    const { client, records, storageCalls } = setup();
     // Failed Cloudflare verification
     spyOn(globalThis, "fetch").mockImplementationOnce((() =>
       Promise.resolve(
@@ -327,6 +385,7 @@ describe("POST /api/v1/public/interest", () => {
       "Complete the verification and try again."
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(storageCalls()).toBe(0);
   });
 
   it("preserves frontend request, success, and error inference", () => {

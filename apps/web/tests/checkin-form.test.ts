@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import type { Mock } from "bun:test";
 import React from "react";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { CheckinForm } from "../src/components/CheckinForm";
 
 interface TurnstileWidgetParams {
@@ -19,18 +20,21 @@ interface WindowWithTurnstile {
 }
 
 describe("CheckinForm component submission and retry behavior", () => {
-  let fetchSpy: ReturnType<typeof spyOn>;
+  let fetchSpy: Mock<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>;
   let turnstileWidgetParams: TurnstileWidgetParams | null = null;
   let turnstileResetCalls: number;
+  let turnstileRenderCalls: number;
 
   beforeEach(() => {
-    fetchSpy = spyOn(globalThis, "fetch");
+    fetchSpy = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected API request"));
     turnstileResetCalls = 0;
+    turnstileRenderCalls = 0;
     turnstileWidgetParams = null;
 
     const win = globalThis as unknown as WindowWithTurnstile;
     win.turnstile = {
       render: (_c, params) => {
+        turnstileRenderCalls++;
         turnstileWidgetParams = params;
         return "widget-mock-id";
       },
@@ -39,16 +43,10 @@ describe("CheckinForm component submission and retry behavior", () => {
       },
       remove: () => {},
     };
-
-    const existing = document.getElementById("cloudflare-turnstile-script");
-    if (existing) existing.remove();
   });
 
   afterEach(() => {
-    cleanup();
     fetchSpy.mockRestore();
-    const existing = document.getElementById("cloudflare-turnstile-script");
-    if (existing) existing.remove();
   });
 
   async function mountForm(props: { token?: string; meetingTitle?: string } = {}) {
@@ -107,6 +105,79 @@ describe("CheckinForm component submission and retry behavior", () => {
   function getSubmitButton(): HTMLButtonElement {
     return screen.getByRole("button", { name: /check in|join list/i }) as HTMLButtonElement;
   }
+
+  it("keeps the Turnstile widget mounted while editing form fields", async () => {
+    await mountForm();
+    fillFormFields({
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      projectInterest: true,
+    });
+    await completeTurnstile();
+    fillFormFields({ firstName: "Janet", educationInterest: true });
+    expect(turnstileRenderCalls).toBe(1);
+    expect(turnstileResetCalls).toBe(0);
+    expect(getSubmitButton().disabled).toBe(false);
+  });
+
+  it("shows required-field errors without calling the API", async () => {
+    await mountForm();
+    await completeTurnstile();
+    fireEvent.click(getSubmitButton());
+    for (const message of [
+      "First name is required.",
+      "Last name is required.",
+      "Email is required.",
+      "Please select at least one interest.",
+    ]) {
+      expect(screen.getByText(message).getAttribute("role")).toBe("alert");
+    }
+    expect(screen.getByLabelText(/first name/i).getAttribute("aria-invalid")).toBe("true");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("hides the honeypot from people and assistive technology and disables autofill", async () => {
+    await mountForm();
+    const honeypot = screen.getByLabelText(/website/i) as HTMLInputElement;
+    expect(screen.queryByRole("textbox", { name: /website/i })).toBeNull();
+    expect(honeypot.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(getComputedStyle(honeypot.parentElement!).display).toBe("none");
+    expect(honeypot.autocomplete).toBe("off");
+    expect(honeypot.tabIndex).toBe(-1);
+  });
+
+  it("retries a failed meeting check-in with preserved fields and a fresh token", async () => {
+    await mountForm({ token: "meeting-retry", meetingTitle: "Fall Kickoff" });
+    fillFormFields({
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      projectInterest: true,
+    });
+    await completeTurnstile("consumed-token");
+    fetchSpy.mockResolvedValueOnce(
+      Response.json({ error: { code: "INTERNAL", message: "Try again later." } }, { status: 500 })
+    );
+    fetchSpy.mockResolvedValueOnce(Response.json({ success: true }, { status: 201 }));
+    fireEvent.click(getSubmitButton());
+    await screen.findByRole("alert");
+    expect(getSubmitButton().disabled).toBe(true);
+    expect(turnstileResetCalls).toBe(1);
+    await completeTurnstile("fresh-token");
+    fireEvent.click(getSubmitButton());
+    await screen.findByRole("heading", { name: /check-in submitted/i });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const payloads = fetchSpy.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    expect(payloads[0]).toMatchObject({ token: "meeting-retry", turnstileToken: "consumed-token" });
+    expect(payloads[1]).toEqual({ ...payloads[0], turnstileToken: "fresh-token" });
+    expect(payloads[1]).toMatchObject({
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      interests: ["project"],
+    });
+  });
 
   it("keeps submit button disabled on initial render and when fields are filled without Turnstile", async () => {
     await mountForm({ meetingTitle: "Fall Kickoff" });
@@ -169,7 +240,7 @@ describe("CheckinForm component submission and retry behavior", () => {
     expect(alertBanner.textContent).toContain("Please complete the verification.");
   });
 
-  it("on HTTP 400 validation error: resets widget, clears token, disables button, and PRESERVES entered values", async () => {
+  it("preserves form fields and requires new verification after HTTP 400", async () => {
     await mountForm({ meetingTitle: "Tech Talk" });
     fillFormFields({
       firstName: "Alex",
@@ -218,7 +289,7 @@ describe("CheckinForm component submission and retry behavior", () => {
     expect(screen.getByText("Email domain is invalid")).toBeTruthy();
   });
 
-  it("on HTTP 429 rate limit: displays clear rate-limit feedback, resets widget, disables button, and PRESERVES values", async () => {
+  it("shows rate-limit feedback and preserves form fields after HTTP 429", async () => {
     await mountForm({ meetingTitle: "Demo Day" });
     fillFormFields({
       firstName: "Taylor",
@@ -261,7 +332,7 @@ describe("CheckinForm component submission and retry behavior", () => {
     expect(emInput.value).toBe("taylor@example.com");
   });
 
-  it("on HTTP 500 server error: displays error message, resets widget, and PRESERVES values", async () => {
+  it("shows server errors and preserves form fields after HTTP 500", async () => {
     await mountForm({ meetingTitle: "Workshop" });
     fillFormFields({
       firstName: "Sam",
@@ -297,7 +368,7 @@ describe("CheckinForm component submission and retry behavior", () => {
     expect((screen.getByLabelText(/email/i) as HTMLInputElement).value).toBe("sam@example.com");
   });
 
-  it("on network failure: displays connection error, resets widget, and PRESERVES values", async () => {
+  it("preserves form fields and requires new verification after a network failure", async () => {
     await mountForm({ meetingTitle: "Workshop" });
     fillFormFields({
       firstName: "Morgan",
@@ -326,7 +397,7 @@ describe("CheckinForm component submission and retry behavior", () => {
     expect((screen.getByLabelText(/email/i) as HTMLInputElement).value).toBe("morgan@example.com");
   });
 
-  it("on Turnstile token expiry (onExpire): resets widget, disables button, displays expiry message, and PRESERVES values", async () => {
+  it("preserves form fields and requests verification when a token expires", async () => {
     await mountForm();
     fillFormFields({
       firstName: "Chris",
@@ -354,7 +425,7 @@ describe("CheckinForm component submission and retry behavior", () => {
     expect((screen.getByLabelText(/email/i) as HTMLInputElement).value).toBe("chris@example.com");
   });
 
-  it("on Turnstile error (onError): resets widget, disables button, displays error message, and PRESERVES values", async () => {
+  it("preserves form fields and requests verification after a widget error", async () => {
     await mountForm();
     fillFormFields({
       firstName: "Jordan",

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import React from "react";
-import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { Turnstile, type TurnstileRef } from "../src/components/Turnstile";
 
 interface TurnstileMockParams {
@@ -34,16 +34,9 @@ describe("Turnstile Component", () => {
   beforeEach(() => {
     originalNodeEnv = process.env.NODE_ENV;
     originalSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-    // Clean any leftover scripts from document head
-    const existing = document.getElementById("cloudflare-turnstile-script");
-    if (existing) existing.remove();
   });
 
   afterEach(() => {
-    cleanup();
-    const existing = document.getElementById("cloudflare-turnstile-script");
-    if (existing) existing.remove();
-
     setNodeEnv(originalNodeEnv);
     if (originalSiteKey !== undefined) {
       process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = originalSiteKey;
@@ -64,11 +57,8 @@ describe("Turnstile Component", () => {
       remove: () => {},
     };
 
-    const turnstileRef = React.createRef<TurnstileRef>();
-
-    render(
+    const first = render(
       React.createElement(Turnstile, {
-        ref: turnstileRef,
         onSuccess: () => {},
       })
     );
@@ -87,9 +77,16 @@ describe("Turnstile Component", () => {
     });
 
     expect(renderCalls).toBe(1);
+    const second = render(React.createElement(Turnstile, { onSuccess: () => {} }));
+    expect(
+      document.querySelectorAll('script[src*="challenges.cloudflare.com/turnstile"]')
+    ).toHaveLength(1);
+    expect(renderCalls).toBe(2);
+    first.unmount();
+    second.unmount();
   });
 
-  it("stores callbacks in refs and does not recreate widget on re-render with new callback identities", async () => {
+  it("keeps the widget mounted and uses the latest success callback after rerender", async () => {
     let renderCalls = 0;
     let storedParams: TurnstileMockParams | null = null;
 
@@ -176,7 +173,64 @@ describe("Turnstile Component", () => {
     expect(resetWidgetId).toBe("widget-xyz");
   });
 
-  it("cleans up event listeners and removes widget from window.turnstile on unmount", async () => {
+  it("uses updated expiry and error callbacks without recreating the widget", async () => {
+    const originalError = () => {
+      throw new Error("Stale error callback");
+    };
+    const originalExpiry = () => {
+      throw new Error("Stale expiry callback");
+    };
+    let params!: TurnstileMockParams;
+    let renders = 0;
+    let errors = 0;
+    let expirations = 0;
+    window.turnstile = {
+      render: (_container, callbacks) => {
+        renders++;
+        params = callbacks;
+        return "widget";
+      },
+      reset: () => {},
+      remove: () => {},
+    };
+    const { rerender, unmount } = render(
+      React.createElement(Turnstile, {
+        onSuccess: () => {},
+        onError: originalError,
+        onExpire: originalExpiry,
+      })
+    );
+    await act(async () => {
+      fireEvent.load(document.getElementById("cloudflare-turnstile-script")!);
+    });
+    rerender(
+      React.createElement(Turnstile, {
+        onSuccess: () => {},
+        onError: () => {
+          errors++;
+        },
+        onExpire: () => {
+          expirations++;
+        },
+      })
+    );
+    act(() => {
+      params["error-callback"]?.();
+      params["expired-callback"]?.();
+    });
+    expect(renders).toBe(1);
+    expect(errors).toBe(1);
+    expect(expirations).toBe(1);
+    unmount();
+    act(() => {
+      params["error-callback"]?.();
+      params["expired-callback"]?.();
+    });
+    expect(errors).toBe(1);
+    expect(expirations).toBe(1);
+  });
+
+  it("removes the rendered widget on unmount", async () => {
     let removedWidgetId = "";
     const win = globalThis as unknown as WindowWithTurnstile;
     win.turnstile = {
@@ -228,6 +282,34 @@ describe("Turnstile Component", () => {
     });
 
     expect(errorFired).toBe(true);
+  });
+
+  it("stops pending script listeners when unmounted before the script loads", () => {
+    let errors = 0;
+    let widgets = 0;
+    delete window.turnstile;
+    const { unmount } = render(
+      React.createElement(Turnstile, {
+        onSuccess: () => {},
+        onError: () => {
+          errors++;
+        },
+      })
+    );
+    const script = document.getElementById("cloudflare-turnstile-script")!;
+    unmount();
+    window.turnstile = {
+      render: () => {
+        widgets++;
+        return "widget";
+      },
+      reset: () => {},
+      remove: () => {},
+    };
+    fireEvent.load(script);
+    fireEvent.error(script);
+    expect(widgets).toBe(0);
+    expect(errors).toBe(0);
   });
 
   it("falls back to the default test key in dev/test environment", async () => {

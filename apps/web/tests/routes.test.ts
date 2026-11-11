@@ -1,19 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import type { Mock } from "bun:test";
 import React from "react";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import Home from "../src/app/page";
 import InterestMeetingsRedirect from "../src/app/interest-meetings/page";
 import ExecInterestMeetingsPage from "../src/app/exec/interest-meetings/page";
+import CheckinPage from "../src/app/checkin/page";
 
 describe("exec routes and navigation", () => {
-  let fetchSpy: ReturnType<typeof spyOn>;
+  let fetchSpy: Mock<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>;
 
   beforeEach(() => {
-    fetchSpy = spyOn(globalThis, "fetch");
+    fetchSpy = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected API request"));
   });
 
   afterEach(() => {
-    cleanup();
     fetchSpy.mockRestore();
   });
 
@@ -37,6 +38,51 @@ describe("exec routes and navigation", () => {
 
     expect(redirectedPath).toContain("/exec/interest-meetings");
   });
+
+  it("renders the public general signup page without a meeting lookup", () => {
+    render(React.createElement(CheckinPage));
+    expect(screen.getByRole("heading", { name: "Join the Interested List" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Join List" })).toBeTruthy();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each(["server", "network"])(
+    "keeps meeting inputs available after a %s error",
+    async (failure) => {
+      if (failure === "server")
+        fetchSpy.mockResolvedValue(
+          Response.json(
+            { error: { code: "CONFLICT", message: "No semester is currently active." } },
+            { status: 409 }
+          )
+        );
+      else fetchSpy.mockRejectedValue(new TypeError("Failed to fetch"));
+      render(React.createElement(ExecInterestMeetingsPage));
+      fireEvent.change(screen.getByLabelText(/meeting title/i), {
+        target: { value: "Fall Kickoff" },
+      });
+      fireEvent.change(screen.getByLabelText(/start time/i), {
+        target: { value: "2026-11-11T18:00" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /create meeting/i }));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(
+        failure === "server"
+          ? "No semester is currently active."
+          : "Network error. Please try again."
+      );
+      expect((screen.getByLabelText(/meeting title/i) as HTMLInputElement).value).toBe(
+        "Fall Kickoff"
+      );
+      expect((screen.getByLabelText(/start time/i) as HTMLInputElement).value).toBe(
+        "2026-11-11T18:00"
+      );
+      expect(
+        (screen.getByRole("button", { name: /create meeting/i }) as HTMLButtonElement).disabled
+      ).toBe(false);
+      expect(screen.queryByRole("img", { name: /QR code/i })).toBeNull();
+    }
+  );
 
   it("/exec/interest-meetings renders creation form and displays QR code on creation", async () => {
     fetchSpy.mockImplementation(() =>
@@ -70,5 +116,11 @@ describe("exec routes and navigation", () => {
       name: "QR code for Spring Project Showcase check-in",
     });
     expect(qrContainer).toBeTruthy();
+    expect(qrContainer.querySelector("svg")).not.toBeNull();
+    const [, init] = fetchSpy.mock.calls[0]!;
+    expect(JSON.parse(String(init?.body))).toEqual({
+      title: "Spring Project Showcase",
+      startsAt: new Date("2026-03-15T18:00").toISOString(),
+    });
   });
 });
