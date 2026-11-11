@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, mock, spyOn } from "bun:test";
 import { errorResponseSchema, submitInterestResponseSchema } from "@internal-tool/shared";
 import type {
   ErrorResponse,
@@ -7,12 +7,14 @@ import type {
 } from "@internal-tool/shared";
 import { hc } from "hono/client";
 import type { InferRequestType, InferResponseType } from "hono/client";
+import type { MiddlewareHandler } from "hono";
 import type { z } from "zod";
 import type { api as webApi } from "../../web/src/lib/api";
 import { createApp } from "../src/app";
 import type { AppType } from "../src/app";
 import { createInterestService } from "../src/services/interest";
 import type { InterestCheckinWrite, InterestStore } from "../src/services/interest";
+import { rateLimit } from "../src/lib/rate-limit";
 
 const semesterId = "00000000-0000-4000-8000-000000000001";
 const otherSemesterId = "00000000-0000-4000-8000-000000000002";
@@ -26,9 +28,25 @@ const submission = {
   lastName: "Applicant",
   email: "fake@example.com",
   interests: ["project"],
+  turnstileToken: "valid-token",
 } satisfies z.input<typeof submitInterestRequestSchema>;
 
-function setup(options: { semester?: string | null; checkedInAt?: Date } = {}) {
+beforeEach(() => {
+  spyOn(globalThis, "fetch").mockImplementation((() =>
+    Promise.resolve(Response.json({ success: true }))) as unknown as typeof fetch);
+});
+
+afterEach(() => {
+  mock.restore();
+});
+
+function setup(
+  options: {
+    semester?: string | null;
+    checkedInAt?: Date;
+    interestLimiter?: MiddlewareHandler;
+  } = {}
+) {
   let currentSemester = options.semester === undefined ? semesterId : options.semester;
   let clock = options.checkedInAt ?? new Date("2026-10-28T20:00:00-04:00");
   const records = new Map<string, InterestCheckinWrite>();
@@ -57,13 +75,26 @@ function setup(options: { semester?: string | null; checkedInAt?: Date } = {}) {
     },
   };
   const service = createInterestService(store, () => clock);
-  const app = createApp({ interestService: service });
-  const client = hc<AppType>("http://localhost", { fetch: app.request.bind(app) });
+  const app = createApp({
+    interestService: service,
+    interestLimiter: options.interestLimiter,
+  });
+  let address = "192.0.2.1";
+  const mockServer = {
+    requestIP: () => ({ address, family: "IPv4", port: 1234 }),
+  };
+  const request = (input: string | Request | URL, init?: RequestInit) =>
+    app.request(input, init, mockServer);
+  const client = hc<AppType>("http://localhost", { fetch: request });
   return {
     app,
     client,
+    request,
     records,
     storageCalls: () => storageCalls,
+    setIp(value: string) {
+      address = value;
+    },
     setClock(value: Date) {
       clock = value;
     },
@@ -80,8 +111,9 @@ describe("POST /api/v1/public/interest", () => {
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ success: true });
     expect(records.size).toBe(1);
+    const { turnstileToken: _ignored, ...expectedRecord } = submission;
     expect([...records.values()][0]).toEqual({
-      ...submission,
+      ...expectedRecord,
       semesterId,
       meetingId: null,
       attended: false,
@@ -120,8 +152,9 @@ describe("POST /api/v1/public/interest", () => {
     });
     expect(res.status).toBe(201);
     expect(records.size).toBe(1);
+    const { turnstileToken: _ignored, ...expectedRecord } = submission;
     expect([...records.values()][0]).toEqual({
-      ...submission,
+      ...expectedRecord,
       firstName: "Updated",
       interests: ["education"],
       semesterId,
@@ -174,7 +207,8 @@ describe("POST /api/v1/public/interest", () => {
     expect(records.size).toBe(0);
   });
 
-  it("returns the same success for a filled honeypot without accessing storage", async () => {
+  it("returns the same success for a filled honeypot without accessing storage or Turnstile", async () => {
+    const fetchMock = spyOn(globalThis, "fetch");
     const { client, records, storageCalls } = setup();
     const res = await client.api.v1.public.interest.$post({
       json: { ...submission, website: "bot.example" },
@@ -183,12 +217,13 @@ describe("POST /api/v1/public/interest", () => {
     expect(submitInterestResponseSchema.parse(await res.json())).toEqual({ success: true });
     expect(records.size).toBe(0);
     expect(storageCalls()).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("discards honeypots even with invalid fields and no current semester", async () => {
-    const { app, records, storageCalls } = setup({ semester: null });
+    const { request, records, storageCalls } = setup({ semester: null });
     for (const website of ["filled", " ", "x".repeat(2049)]) {
-      const res = await app.request("/api/v1/public/interest", {
+      const res = await request("/api/v1/public/interest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ website }),
@@ -221,9 +256,9 @@ describe("POST /api/v1/public/interest", () => {
   });
 
   it("returns standard validation errors for malformed and non-object JSON", async () => {
-    const { app, storageCalls } = setup();
+    const { request, storageCalls } = setup();
     for (const body of ["{", "", "null", "[]", '"text"']) {
-      const res = await app.request("/api/v1/public/interest", {
+      const res = await request("/api/v1/public/interest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
@@ -235,8 +270,8 @@ describe("POST /api/v1/public/interest", () => {
   });
 
   it("ignores client-supplied attendance, semester, and timestamps", async () => {
-    const { app, records } = setup();
-    const res = await app.request("/api/v1/public/interest", {
+    const { request, records } = setup();
+    const res = await request("/api/v1/public/interest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -253,6 +288,104 @@ describe("POST /api/v1/public/interest", () => {
     expect(saved.submittedAt).toEqual(new Date("2026-10-29T00:00:00Z"));
     expect("website" in saved).toBe(false);
     expect("turnstileToken" in saved).toBe(false);
+  });
+
+  it("admits 100 students sharing an IP, blocks request 101, and resets after one minute", async () => {
+    let now = 0;
+    spyOn(performance, "now").mockImplementation(() => now);
+    const cloudflare = spyOn(globalThis, "fetch");
+    const { client, records, storageCalls, setIp } = setup();
+    for (let i = 0; i < 100; i++) {
+      const res = await client.api.v1.public.interest.$post({
+        json: {
+          ...submission,
+          token: "meeting-token",
+          email: `student-${i}@example.com`,
+          turnstileToken: `token-${i}`,
+        },
+      });
+      expect(res.status).toBe(201);
+    }
+    expect(records.size).toBe(100);
+    expect([...records.values()].every((record) => record.attended)).toBe(true);
+    expect(cloudflare).toHaveBeenCalledTimes(100);
+    const callsBeforeLimit = storageCalls();
+    const limited = await client.api.v1.public.interest.$post({ json: submission });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("60");
+    const body = errorResponseSchema.parse(await limited.json());
+    expect(body.error.code).toBe("RATE_LIMITED");
+    expect(storageCalls()).toBe(callsBeforeLimit);
+    expect(cloudflare).toHaveBeenCalledTimes(100);
+
+    setIp("192.0.2.2");
+    expect((await client.api.v1.public.interest.$post({ json: submission })).status).toBe(201);
+    setIp("192.0.2.1");
+    now = 59_999;
+    const stillLimited = await client.api.v1.public.interest.$post({ json: submission });
+    expect(stillLimited.status).toBe(429);
+    expect(stillLimited.headers.get("Retry-After")).toBe("1");
+    now = 60_000;
+    expect((await client.api.v1.public.interest.$post({ json: submission })).status).toBe(201);
+  });
+
+  it("runs an injected limiter before parsing JSON, honeypot handling, or verification", async () => {
+    const cloudflare = spyOn(globalThis, "fetch");
+    const { request, storageCalls } = setup({
+      interestLimiter: rateLimit({ windowMs: 60_000, max: 1 }),
+    });
+    const post = (body: string) =>
+      request("/api/v1/public/interest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+    expect((await post(JSON.stringify({ website: "bot.example" }))).status).toBe(201);
+    const parse = spyOn(Request.prototype, "json");
+    for (const body of [
+      "{",
+      JSON.stringify({ website: "bot.example" }),
+      JSON.stringify(submission),
+    ]) {
+      const res = await post(body);
+      expect(res.status).toBe(429);
+      expect(errorResponseSchema.parse(await res.json()).error.code).toBe("RATE_LIMITED");
+      expect(res.headers.get("Retry-After")).toBe("60");
+    }
+    expect(parse).not.toHaveBeenCalled();
+    expect(cloudflare).not.toHaveBeenCalled();
+    expect(storageCalls()).toBe(0);
+  });
+
+  it("verifies Turnstile tokens and rejects failed or missing tokens", async () => {
+    const { client, records, storageCalls } = setup();
+    // Failed Cloudflare verification
+    spyOn(globalThis, "fetch").mockImplementationOnce((() =>
+      Promise.resolve(
+        Response.json({ success: false, "error-codes": ["invalid-input-response"] })
+      )) as unknown as typeof fetch);
+    const failedRes = await client.api.v1.public.interest.$post({ json: submission });
+    expect(failedRes.status).toBe(400);
+    const failedBody = errorResponseSchema.parse(await failedRes.json());
+    expect(failedBody.error.code).toBe("VALIDATION");
+    expect(failedBody.error.fields?.turnstileToken).toBe(
+      "Complete the verification and try again."
+    );
+    expect(records.size).toBe(0);
+
+    // Missing token fails without calling Cloudflare
+    const fetchSpy = spyOn(globalThis, "fetch");
+    fetchSpy.mockClear();
+    const missingRes = await client.api.v1.public.interest.$post({
+      json: { ...submission, turnstileToken: "" },
+    });
+    expect(missingRes.status).toBe(400);
+    const missingBody = errorResponseSchema.parse(await missingRes.json());
+    expect(missingBody.error.fields?.turnstileToken).toBe(
+      "Complete the verification and try again."
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(storageCalls()).toBe(0);
   });
 
   it("preserves frontend request, success, and error inference", () => {

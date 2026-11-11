@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { MiddlewareHandler } from "hono";
 import type { ApplyGlobalResponse } from "hono/client";
 import type { ErrorResponse } from "@internal-tool/shared";
 import { handleError, handleNotFound } from "./lib/errors";
@@ -24,7 +25,12 @@ import type { InterestService } from "./services/interest";
 export function createApp({
   meetingService = createInterestMeetingService(),
   interestService = createInterestService(),
-}: { meetingService?: InterestMeetingService; interestService?: InterestService } = {}) {
+  interestLimiter,
+}: {
+  meetingService?: InterestMeetingService;
+  interestService?: InterestService;
+  interestLimiter?: MiddlewareHandler;
+} = {}) {
   return new Hono<AppEnv>()
     .onError(handleError)
     .notFound(handleNotFound)
@@ -36,7 +42,7 @@ export function createApp({
     .route("/me", me)
     .route("/interest-meetings", createInterestMeetingRoutes(meetingService))
     .route("/public/checkin", createPublicCheckinRoutes(meetingService))
-    .route("/public/interest", createPublicInterestRoutes(interestService));
+    .route("/public/interest", createPublicInterestRoutes(interestService, interestLimiter));
 }
 
 export const app = createApp();
