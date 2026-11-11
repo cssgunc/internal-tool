@@ -17,7 +17,7 @@ import { validate } from "../lib/validation";
 // formSchema comes from @internal-tool/shared; submit handles the validated form.
 routes.post(
   "/",
-  rateLimit({ windowMs: 60_000, max: 10 }),
+  rateLimit({ windowMs: 60_000, max: 100 }),
   validate("json", formSchema),
   verifyTurnstile,
   submit
@@ -50,7 +50,7 @@ Rate limiting is intentionally applied before schema validation and honeypot eva
 ```ts
 routes.post(
   "/",
-  rateLimit({ windowMs: 60_000, max: 10 }), // 1. Transport layer rate limiting
+  rateLimit({ windowMs: 60_000, max: 100 }), // 1. Transport layer rate limiting (scaled to 100/min to avoid blocking students sharing campus Wi-Fi IP)
   validate("json", formSchema), // 2. Body parsing & schema validation
   verifyTurnstile, // 3. CAPTCHA verification
   submit // 4. Honeypot check & handler execution

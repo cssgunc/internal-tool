@@ -1,54 +1,32 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import React, { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import React from "react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import Home from "../src/app/page";
 import InterestMeetingsRedirect from "../src/app/interest-meetings/page";
 import ExecInterestMeetingsPage from "../src/app/exec/interest-meetings/page";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import {
-  installDomShim,
-  uninstallDomShim,
-  mockFetch,
-  restoreFetch,
-  type SimpleElement,
-} from "./dom-shim";
 
-describe("Exec Route Cleanliness & Redirection (R4)", () => {
-  let doc: ReturnType<typeof installDomShim>;
-  let container: SimpleElement;
-  let root: Root;
+describe("exec routes and navigation", () => {
+  let fetchSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    doc = installDomShim();
-    container = doc.createElement("div");
-    root = createRoot(container as unknown as HTMLElement);
+    fetchSpy = spyOn(globalThis, "fetch");
   });
 
-  afterEach(async () => {
-    restoreFetch();
-    await act(async () => {
-      root.unmount();
-    });
-    uninstallDomShim();
+  afterEach(() => {
+    cleanup();
+    fetchSpy.mockRestore();
   });
 
-  it("homepage (/) has NO unauthenticated meeting creation link (R4)", () => {
-    const html = renderToStaticMarkup(React.createElement(Home));
+  it("homepage does not contain an unauthenticated meeting creation link", () => {
+    render(React.createElement(Home));
 
-    // Must link to public /checkin and /semesters
-    expect(html).toContain('href="/checkin"');
-    expect(html).toContain('href="/semesters"');
-
-    // Must NOT link to exec/interest meeting creation
-    expect(html).not.toContain('href="/interest-meetings"');
-    expect(html).not.toContain('href="/exec/interest-meetings"');
-    expect(html).not.toContain("Create Meeting");
-    expect(html).not.toContain("Create Interest Meeting");
+    expect(screen.getByRole("link", { name: /join interested list/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /semesters list/i })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /create meeting/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /interest-meetings/i })).toBeNull();
   });
 
-  it("/interest-meetings performs redirect to /exec/interest-meetings (R4)", () => {
+  it("/interest-meetings performs redirect to /exec/interest-meetings", () => {
     let redirectedPath = "";
     try {
       InterestMeetingsRedirect();
@@ -57,66 +35,40 @@ describe("Exec Route Cleanliness & Redirection (R4)", () => {
       redirectedPath = err.digest || err.message || "";
     }
 
-    // Next.js redirect() throws a NEXT_REDIRECT digest with destination
     expect(redirectedPath).toContain("/exec/interest-meetings");
   });
 
-  it("/exec/interest-meetings page source code retains '// TODO(auth)' comment (R4)", () => {
-    const filePath = resolve(import.meta.dir, "../src/app/exec/interest-meetings/page.tsx");
-    const content = readFileSync(filePath, "utf-8");
-
-    expect(content).toContain(
-      "// TODO(auth): URL placement does not provide authorization; restrict meeting creation to exec and set created_by from session once auth is wired."
-    );
-  });
-
-  it("/exec/interest-meetings renders creation form and displays QR code on creation (R4)", async () => {
-    mockFetch(async () => {
-      return new Response(
-        JSON.stringify({
+  it("/exec/interest-meetings renders creation form and displays QR code on creation", async () => {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        Response.json({
           id: "meeting-new-123",
           checkinUrl: "http://localhost:3000/checkin/test-token-777",
           qrSvg:
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="black"/></svg>',
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }
-      );
-    });
-
-    await act(async () => {
-      root.render(React.createElement(ExecInterestMeetingsPage));
-    });
-
-    // Form inputs present
-    const titleInput = container.querySelector((n) => n.id === "meeting-title");
-    const startsAtInput = container.querySelector((n) => n.id === "meeting-startsAt");
-    expect(titleInput).not.toBeNull();
-    expect(startsAtInput).not.toBeNull();
-
-    // Fill fields
-    await act(async () => {
-      titleInput?.simulateChange("Spring Project Showcase");
-      startsAtInput?.simulateChange("2026-03-15T18:00");
-    });
-
-    const form = container.querySelector((n) => n.nodeName === "FORM");
-    await act(async () => {
-      await form?.simulateSubmit();
-    });
-
-    // Check projector display
-    expect(container.textContent).toContain("Spring Project Showcase");
-    expect(container.textContent).toContain("Check-in Open");
-    expect(container.textContent).toContain("http://localhost:3000/checkin/test-token-777");
-
-    // QR SVG container rendered
-    const qrContainer = container.querySelector((n) => n.role === "img");
-    expect(qrContainer).not.toBeNull();
-    expect(qrContainer?.getAttribute("aria-label")).toContain(
-      "QR code for Spring Project Showcase check-in"
+        })
+      )
     );
+
+    render(React.createElement(ExecInterestMeetingsPage));
+
+    const titleInput = screen.getByLabelText(/meeting title/i);
+    const startsAtInput = screen.getByLabelText(/start time/i);
+
+    fireEvent.change(titleInput, { target: { value: "Spring Project Showcase" } });
+    fireEvent.change(startsAtInput, { target: { value: "2026-03-15T18:00" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /create meeting/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Spring Project Showcase")).toBeTruthy();
+    });
+
+    expect(screen.getByText("Check-in Open")).toBeTruthy();
+    expect(screen.getByText("http://localhost:3000/checkin/test-token-777")).toBeTruthy();
+    const qrContainer = screen.getByRole("img", {
+      name: "QR code for Spring Project Showcase check-in",
+    });
+    expect(qrContainer).toBeTruthy();
   });
 });

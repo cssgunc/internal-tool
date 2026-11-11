@@ -14,6 +14,7 @@ import { createApp } from "../src/app";
 import type { AppType } from "../src/app";
 import { createInterestService } from "../src/services/interest";
 import type { InterestCheckinWrite, InterestStore } from "../src/services/interest";
+import { rateLimit } from "../src/lib/rate-limit";
 
 const semesterId = "00000000-0000-4000-8000-000000000001";
 const otherSemesterId = "00000000-0000-4000-8000-000000000002";
@@ -286,7 +287,7 @@ describe("POST /api/v1/public/interest", () => {
   });
 
   it("enforces per-IP rate limiting on public interest submissions", async () => {
-    const { client } = setup();
+    const { client } = setup({ interestLimiter: rateLimit({ windowMs: 60_000, max: 10 }) });
     for (let i = 0; i < 10; i++) {
       const res = await client.api.v1.public.interest.$post({ json: submission });
       expect(res.status).toBe(201);

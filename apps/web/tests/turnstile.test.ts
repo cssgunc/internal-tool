@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import React, { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import React from "react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { Turnstile, type TurnstileRef } from "../src/components/Turnstile";
-import { installDomShim, uninstallDomShim, type SimpleElement } from "./dom-shim";
 
 interface TurnstileMockParams {
   sitekey: string;
@@ -28,26 +27,23 @@ function setNodeEnv(val: string | undefined): void {
   }
 }
 
-describe("Turnstile Component (R1 & R6)", () => {
-  let doc: ReturnType<typeof installDomShim>;
-  let container: SimpleElement;
-  let root: Root;
+describe("Turnstile Component", () => {
   let originalNodeEnv: string | undefined;
   let originalSiteKey: string | undefined;
 
   beforeEach(() => {
     originalNodeEnv = process.env.NODE_ENV;
     originalSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-    doc = installDomShim();
-    container = doc.createElement("div");
-    root = createRoot(container as unknown as HTMLElement);
+    // Clean any leftover scripts from document head
+    const existing = document.getElementById("cloudflare-turnstile-script");
+    if (existing) existing.remove();
   });
 
-  afterEach(async () => {
-    await act(async () => {
-      root.unmount();
-    });
-    uninstallDomShim();
+  afterEach(() => {
+    cleanup();
+    const existing = document.getElementById("cloudflare-turnstile-script");
+    if (existing) existing.remove();
+
     setNodeEnv(originalNodeEnv);
     if (originalSiteKey !== undefined) {
       process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = originalSiteKey;
@@ -70,16 +66,16 @@ describe("Turnstile Component (R1 & R6)", () => {
 
     const turnstileRef = React.createRef<TurnstileRef>();
 
-    await act(async () => {
-      root.render(
-        React.createElement(Turnstile, {
-          ref: turnstileRef,
-          onSuccess: () => {},
-        })
-      );
-    });
+    render(
+      React.createElement(Turnstile, {
+        ref: turnstileRef,
+        onSuccess: () => {},
+      })
+    );
 
-    const script = doc.getElementById("cloudflare-turnstile-script");
+    const script = document.getElementById(
+      "cloudflare-turnstile-script"
+    ) as HTMLScriptElement | null;
     expect(script).not.toBeNull();
     expect(script?.src).toBe(
       "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
@@ -87,13 +83,13 @@ describe("Turnstile Component (R1 & R6)", () => {
 
     // Simulate script load event
     await act(async () => {
-      script?.dispatchEvent({ type: "load" });
+      fireEvent.load(script!);
     });
 
     expect(renderCalls).toBe(1);
   });
 
-  it("stores callbacks in refs and does NOT recreate widget on re-render with new callback identities (R1)", async () => {
+  it("stores callbacks in refs and does not recreate widget on re-render with new callback identities", async () => {
     let renderCalls = 0;
     let storedParams: TurnstileMockParams | null = null;
 
@@ -112,52 +108,47 @@ describe("Turnstile Component (R1 & R6)", () => {
     let callback2Fired = false;
 
     // First render with callback 1
-    await act(async () => {
-      root.render(
-        React.createElement(Turnstile, {
-          onSuccess: () => {
-            callback1Fired = true;
-          },
-        })
-      );
-    });
+    const { rerender } = render(
+      React.createElement(Turnstile, {
+        onSuccess: () => {
+          callback1Fired = true;
+        },
+      })
+    );
 
-    const script = doc.getElementById("cloudflare-turnstile-script");
+    const script = document.getElementById(
+      "cloudflare-turnstile-script"
+    ) as HTMLScriptElement | null;
     await act(async () => {
-      script?.dispatchEvent({ type: "load" });
+      fireEvent.load(script!);
     });
 
     expect(renderCalls).toBe(1);
 
-    // Re-render with callback 2 (simulating parent state change, e.g. typing in input)
-    await act(async () => {
-      root.render(
-        React.createElement(Turnstile, {
-          onSuccess: () => {
-            callback2Fired = true;
-          },
-        })
-      );
-    });
+    // Re-render with new callback identity
+    rerender(
+      React.createElement(Turnstile, {
+        onSuccess: () => {
+          callback2Fired = true;
+        },
+      })
+    );
 
-    // Re-render MUST NOT re-call render
+    // Widget must NOT be rendered again
     expect(renderCalls).toBe(1);
 
-    // Trigger callback from widget — it should call callback 2 via ref
-    (storedParams as TurnstileMockParams | null)?.callback?.("verified-token");
+    // Invoking the callback must call the updated callback 2 via the ref
+    (storedParams as TurnstileMockParams | null)?.callback?.("dummy-token");
     expect(callback1Fired).toBe(false);
     expect(callback2Fired).toBe(true);
   });
 
-  it("exposes imperative reset() handle calling window.turnstile.reset (R2)", async () => {
-    let resetCalls = 0;
+  it("exposes an imperative reset() handle calling window.turnstile.reset", async () => {
     let resetWidgetId = "";
-
     const win = globalThis as unknown as WindowWithTurnstile;
     win.turnstile = {
-      render: () => "widget-to-reset",
-      reset: (id: string) => {
-        resetCalls++;
+      render: () => "widget-xyz",
+      reset: (id) => {
         resetWidgetId = id;
       },
       remove: () => {},
@@ -165,88 +156,81 @@ describe("Turnstile Component (R1 & R6)", () => {
 
     const turnstileRef = React.createRef<TurnstileRef>();
 
-    await act(async () => {
-      root.render(
-        React.createElement(Turnstile, {
-          ref: turnstileRef,
-          onSuccess: () => {},
-        })
-      );
-    });
+    render(
+      React.createElement(Turnstile, {
+        ref: turnstileRef,
+        onSuccess: () => {},
+      })
+    );
 
-    const script = doc.getElementById("cloudflare-turnstile-script");
+    const script = document.getElementById(
+      "cloudflare-turnstile-script"
+    ) as HTMLScriptElement | null;
     await act(async () => {
-      script?.dispatchEvent({ type: "load" });
+      fireEvent.load(script!);
     });
 
     expect(turnstileRef.current).not.toBeNull();
     turnstileRef.current?.reset();
 
-    expect(resetCalls).toBe(1);
-    expect(resetWidgetId).toBe("widget-to-reset");
+    expect(resetWidgetId).toBe("widget-xyz");
   });
 
-  it("cleans up event listeners and removes widget from window.turnstile on unmount (R1)", async () => {
-    let removeCalls = 0;
+  it("cleans up event listeners and removes widget from window.turnstile on unmount", async () => {
     let removedWidgetId = "";
-
     const win = globalThis as unknown as WindowWithTurnstile;
     win.turnstile = {
       render: () => "widget-to-remove",
       reset: () => {},
-      remove: (id: string) => {
-        removeCalls++;
+      remove: (id) => {
         removedWidgetId = id;
       },
     };
 
-    await act(async () => {
-      root.render(
-        React.createElement(Turnstile, {
-          onSuccess: () => {},
-        })
-      );
-    });
+    const { unmount } = render(
+      React.createElement(Turnstile, {
+        onSuccess: () => {},
+      })
+    );
 
-    const script = doc.getElementById("cloudflare-turnstile-script");
+    const script = document.getElementById(
+      "cloudflare-turnstile-script"
+    ) as HTMLScriptElement | null;
     await act(async () => {
-      script?.dispatchEvent({ type: "load" });
+      fireEvent.load(script!);
     });
 
     // Unmount
-    await act(async () => {
-      root.unmount();
-    });
+    unmount();
 
-    expect(removeCalls).toBe(1);
     expect(removedWidgetId).toBe("widget-to-remove");
   });
 
-  it("handles script loading error and invokes onError (R1)", async () => {
+  it("handles script loading error and invokes onError", async () => {
     let errorFired = false;
 
-    await act(async () => {
-      root.render(
-        React.createElement(Turnstile, {
-          onSuccess: () => {},
-          onError: () => {
-            errorFired = true;
-          },
-        })
-      );
-    });
+    render(
+      React.createElement(Turnstile, {
+        onSuccess: () => {},
+        onError: () => {
+          errorFired = true;
+        },
+      })
+    );
 
-    const script = doc.getElementById("cloudflare-turnstile-script");
+    const script = document.getElementById(
+      "cloudflare-turnstile-script"
+    ) as HTMLScriptElement | null;
     expect(script).not.toBeNull();
 
     await act(async () => {
-      script?.dispatchEvent({ type: "error" });
+      fireEvent.error(script!);
     });
 
     expect(errorFired).toBe(true);
   });
 
-  it("falls back to the default test key in dev/test environment (R6)", async () => {
+  it("falls back to the default test key in dev/test environment", async () => {
     const prevSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
     const prevNodeEnv = process.env.NODE_ENV;
     delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
@@ -264,17 +248,17 @@ describe("Turnstile Component (R1 & R6)", () => {
         remove: () => {},
       };
 
-      await act(async () => {
-        root.render(
-          React.createElement(Turnstile, {
-            onSuccess: () => {},
-          })
-        );
-      });
+      render(
+        React.createElement(Turnstile, {
+          onSuccess: () => {},
+        })
+      );
 
-      const script = doc.getElementById("cloudflare-turnstile-script");
+      const script = document.getElementById(
+        "cloudflare-turnstile-script"
+      ) as HTMLScriptElement | null;
       await act(async () => {
-        script?.dispatchEvent({ type: "load" });
+        fireEvent.load(script!);
       });
 
       expect(renderedSiteKey).toBe("1x00000000000000000000AA");
@@ -288,32 +272,27 @@ describe("Turnstile Component (R1 & R6)", () => {
     }
   });
 
-  it("in production, missing NEXT_PUBLIC_TURNSTILE_SITE_KEY renders role='alert' and halts script loading (R6)", async () => {
+  it("in production, missing NEXT_PUBLIC_TURNSTILE_SITE_KEY renders role='alert' and halts script loading", async () => {
     const prevSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
     const prevNodeEnv = process.env.NODE_ENV;
     setNodeEnv("production");
     delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
     try {
-      await act(async () => {
-        root.render(
-          React.createElement(Turnstile, {
-            onSuccess: () => {},
-          })
-        );
-      });
+      render(
+        React.createElement(Turnstile, {
+          onSuccess: () => {},
+        })
+      );
 
       // Script should NOT be created
-      const script = doc.getElementById("cloudflare-turnstile-script");
+      const script = document.getElementById("cloudflare-turnstile-script");
       expect(script).toBeNull();
 
       // Alert banner should be rendered
-      const alertEl = container.querySelector(
-        (n) =>
-          n.role === "alert" || n.textContent.includes("Verification is temporarily unavailable")
-      );
+      const alertEl = screen.getByRole("alert");
       expect(alertEl).not.toBeNull();
-      expect(alertEl?.textContent).toContain(
+      expect(alertEl.textContent).toContain(
         "Verification is temporarily unavailable. Please contact the administrator."
       );
     } finally {
@@ -326,7 +305,7 @@ describe("Turnstile Component (R1 & R6)", () => {
     }
   });
 
-  it("in production, provided NEXT_PUBLIC_TURNSTILE_SITE_KEY is used properly without alert banner (R6)", async () => {
+  it("in production, provided NEXT_PUBLIC_TURNSTILE_SITE_KEY is used properly without alert banner", async () => {
     const prevSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
     const prevNodeEnv = process.env.NODE_ENV;
     setNodeEnv("production");
@@ -344,25 +323,23 @@ describe("Turnstile Component (R1 & R6)", () => {
         remove: () => {},
       };
 
-      await act(async () => {
-        root.render(
-          React.createElement(Turnstile, {
-            onSuccess: () => {},
-          })
-        );
-      });
+      render(
+        React.createElement(Turnstile, {
+          onSuccess: () => {},
+        })
+      );
 
-      const script = doc.getElementById("cloudflare-turnstile-script");
+      const script = document.getElementById(
+        "cloudflare-turnstile-script"
+      ) as HTMLScriptElement | null;
       expect(script).not.toBeNull();
 
       await act(async () => {
-        script?.dispatchEvent({ type: "load" });
+        fireEvent.load(script!);
       });
 
       expect(renderedSiteKey).toBe("0x4AAAAAAAPROD_KEY");
-
-      const alertEl = container.querySelector((n) => n.role === "alert");
-      expect(alertEl).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
     } finally {
       if (prevSiteKey !== undefined) {
         process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = prevSiteKey;

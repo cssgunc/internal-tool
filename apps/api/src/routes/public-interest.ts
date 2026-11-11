@@ -12,7 +12,7 @@ import type { InterestService } from "../services/interest";
 
 export function createPublicInterestRoutes(
   service: InterestService,
-  limiter: MiddlewareHandler = rateLimit({ windowMs: 60_000, max: 10 })
+  limiter: MiddlewareHandler = rateLimit({ windowMs: 60_000, max: 100 })
 ) {
   return new Hono().post(
     "/",

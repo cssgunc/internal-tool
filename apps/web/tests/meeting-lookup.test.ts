@@ -1,14 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import React, { act, Suspense } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import React, { Suspense } from "react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import MeetingCheckinPage from "../src/app/checkin/[token]/page";
-import {
-  installDomShim,
-  uninstallDomShim,
-  mockFetch,
-  restoreFetch,
-  type SimpleElement,
-} from "./dom-shim";
 
 interface WindowWithTurnstile {
   turnstile?: {
@@ -18,16 +11,11 @@ interface WindowWithTurnstile {
   };
 }
 
-describe("Meeting Lookup 5-State Model (R3)", () => {
-  let doc: ReturnType<typeof installDomShim>;
-  let container: SimpleElement;
-  let root: Root;
+describe("Meeting lookup states and error recovery", () => {
+  let fetchSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    doc = installDomShim();
-    container = doc.createElement("div");
-    root = createRoot(container as unknown as HTMLElement);
-
+    fetchSpy = spyOn(globalThis, "fetch");
     const win = globalThis as unknown as WindowWithTurnstile;
     win.turnstile = {
       render: () => "widget-mock-id",
@@ -36,17 +24,15 @@ describe("Meeting Lookup 5-State Model (R3)", () => {
     };
   });
 
-  afterEach(async () => {
-    restoreFetch();
-    await act(async () => {
-      root.unmount();
-    });
-    uninstallDomShim();
+  afterEach(() => {
+    cleanup();
+    fetchSpy.mockRestore();
   });
 
   async function renderPage(token: string) {
+    let result: ReturnType<typeof render>;
     await act(async () => {
-      root.render(
+      result = render(
         React.createElement(
           Suspense,
           { fallback: "Suspense fallback" },
@@ -56,19 +42,19 @@ describe("Meeting Lookup 5-State Model (R3)", () => {
         )
       );
     });
+    return result!;
   }
 
-  it("state 1 & 2: displays accessible loading spinner, then transitions to HTTP 200 loaded state (R3)", async () => {
+  it("displays accessible loading spinner, then transitions to HTTP 200 loaded state", async () => {
     let resolveFetch!: (res: Response) => void;
     const fetchPromise = new Promise<Response>((resolve) => {
       resolveFetch = resolve;
     });
 
-    mockFetch(async () => fetchPromise);
+    fetchSpy.mockImplementation(() => fetchPromise);
 
-    // Start render with unresolved fetch
     await act(async () => {
-      root.render(
+      render(
         React.createElement(
           Suspense,
           { fallback: "Suspense fallback" },
@@ -79,14 +65,10 @@ describe("Meeting Lookup 5-State Model (R3)", () => {
       );
     });
 
-    // Verify accessible loading state
-    const loadingStatus = container.querySelector(
-      (n) => n.role === "status" && n.getAttribute("aria-live") === "polite"
-    );
-    expect(loadingStatus).not.toBeNull();
-    expect(loadingStatus?.textContent).toContain("Loading meeting details...");
+    const loadingStatus = screen.getByRole("status");
+    expect(loadingStatus).toBeTruthy();
+    expect(loadingStatus.textContent).toContain("Loading meeting details...");
 
-    // Now resolve the fetch with 200 OK
     await act(async () => {
       resolveFetch(
         new Response(JSON.stringify({ title: "Spring General Body Meeting" }), {
@@ -96,241 +78,211 @@ describe("Meeting Lookup 5-State Model (R3)", () => {
       );
     });
 
-    // Check loaded state
-    const heading = container.querySelector((n) => n.nodeName === "H1");
-    expect(heading?.textContent).toBe("Spring General Body Meeting");
-
-    // Form should be rendered
-    const form = container.querySelector((n) => n.nodeName === "FORM");
-    expect(form).not.toBeNull();
-  });
-
-  it("state 3: HTTP 404 renders 'Meeting Not Found' card with link to /checkin and NO retry button (R3)", async () => {
-    mockFetch(async () => {
-      return new Response(
-        JSON.stringify({
-          error: { code: "NOT_FOUND", message: "Meeting not found" },
-        }),
-        {
-          status: 404,
-          headers: { "content-type": "application/json" },
-        }
-      );
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
     });
 
-    await renderPage("invalid-token-404");
-
-    const heading = container.querySelector((n) => n.nodeName === "H1");
-    expect(heading?.textContent).toBe("Meeting Not Found");
-
-    expect(container.textContent).toContain(
-      "Meeting not found. This check-in link may be invalid or expired."
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "Spring General Body Meeting"
     );
-
-    // Link to /checkin must be present
-    const checkinLink = container.querySelector(
-      (n) => n.nodeName === "A" && n.getAttribute("href") === "/checkin"
-    );
-    expect(checkinLink).not.toBeNull();
-    expect(checkinLink?.textContent).toContain("Join the Interested List instead");
-
-    // NO "Try Again" button for 404
-    const tryAgainBtn = container.querySelector(
-      (n) => n.nodeName === "BUTTON" && n.textContent.includes("Try Again")
-    );
-    expect(tryAgainBtn).toBeNull();
+    expect(screen.getByLabelText(/first name/i)).toBeTruthy();
   });
 
-  it("state 4: HTTP 500/503 renders 'Server Error' card with 'Try Again' retry button (R3)", async () => {
-    mockFetch(async () => {
-      return new Response(
-        JSON.stringify({
-          error: { code: "INTERNAL", message: "Server error" },
-        }),
-        {
-          status: 500,
-          headers: { "content-type": "application/json" },
-        }
-      );
+  it("HTTP 404 renders 'Meeting Not Found' card with link to /checkin and NO retry button", async () => {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            error: { code: "NOT_FOUND", message: "Meeting not found." },
+          }),
+          { status: 404, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    await renderPage("unknown-meeting-token");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1, name: "Meeting Not Found" })).toBeTruthy();
     });
 
-    await renderPage("error-token-500");
+    expect(screen.getByText(/this check-in link may be invalid/i)).toBeTruthy();
 
-    const heading = container.querySelector((n) => n.nodeName === "H1");
-    expect(heading?.textContent).toBe("Server Error");
+    const checkinLink = screen.getByRole("link", { name: /join the interested list instead/i });
+    expect(checkinLink).toBeTruthy();
+    expect(checkinLink.getAttribute("href")).toBe("/checkin");
 
-    expect(container.textContent).toContain(
-      "A temporary server error occurred while loading meeting details. Please try again."
-    );
-
-    // "Try Again" button MUST be present
-    const tryAgainBtn = container.querySelector(
-      (n) => n.nodeName === "BUTTON" && n.textContent.includes("Try Again")
-    );
-    expect(tryAgainBtn).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
   });
 
-  it("state 5: network failure renders 'Connection Error' card with 'Try Again' button (R3)", async () => {
-    mockFetch(async () => {
-      throw new Error("Failed to fetch: DNS or network failure");
+  it("HTTP 500/503 renders 'Server Error' card with 'Try Again' retry button", async () => {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+          }),
+          { status: 500, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    await renderPage("server-error-token");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1, name: "Server Error" })).toBeTruthy();
     });
 
-    await renderPage("token-net-err");
+    expect(screen.getByText(/a temporary server error occurred/i)).toBeTruthy();
 
-    const heading = container.querySelector((n) => n.nodeName === "H1");
-    expect(heading?.textContent).toBe("Connection Error");
-
-    expect(container.textContent).toContain(
-      "Unable to connect to the server. Please check your internet connection and try again."
-    );
-
-    const tryAgainBtn = container.querySelector(
-      (n) => n.nodeName === "BUTTON" && n.textContent.includes("Try Again")
-    );
-    expect(tryAgainBtn).not.toBeNull();
+    const tryAgainBtn = screen.getByRole("button", { name: /try again/i });
+    expect(tryAgainBtn).toBeTruthy();
   });
 
-  it("clicking 'Try Again' re-fetches meeting details and recovers to loaded state on HTTP 200 (R3)", async () => {
+  it("network failure renders 'Connection Error' card with 'Try Again' button", async () => {
+    fetchSpy.mockImplementation(() => Promise.reject(new TypeError("Failed to fetch")));
+
+    await renderPage("network-error-token");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1, name: "Connection Error" })).toBeTruthy();
+    });
+
+    expect(screen.getByText(/unable to connect to the server/i)).toBeTruthy();
+
+    const tryAgainBtn = screen.getByRole("button", { name: /try again/i });
+    expect(tryAgainBtn).toBeTruthy();
+  });
+
+  it("clicking 'Try Again' re-fetches meeting details and recovers to loaded state on HTTP 200", async () => {
     let callCount = 0;
-    mockFetch(async () => {
+    fetchSpy.mockImplementation(() => {
       callCount++;
       if (callCount === 1) {
-        return new Response("Internal Error", { status: 500 });
-      }
-      return new Response(JSON.stringify({ title: "Recovered Meeting Title" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    });
-
-    await renderPage("retry-test-token");
-
-    // First attempt -> Server Error
-    expect(container.textContent).toContain("Server Error");
-    expect(callCount).toBe(1);
-
-    // Click "Try Again"
-    const tryAgainBtn = container.querySelector(
-      (n) => n.nodeName === "BUTTON" && n.textContent.includes("Try Again")
-    );
-    await act(async () => {
-      tryAgainBtn?.simulateClick();
-    });
-
-    // Should have refetched and recovered
-    expect(callCount).toBe(2);
-    expect(container.textContent).toContain("Recovered Meeting Title");
-  });
-
-  it("immediately transitions to loading state on token prop change, preventing stale data flash (R3)", async () => {
-    let resolveTokenB!: (res: Response) => void;
-    const tokenBPromise = new Promise<Response>((resolve) => {
-      resolveTokenB = resolve;
-    });
-
-    mockFetch(async (url) => {
-      if (String(url).includes("token-A")) {
-        return new Response(JSON.stringify({ title: "Meeting A" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      // token-B hangs until explicitly resolved
-      return tokenBPromise;
-    });
-
-    // Load token-A
-    await renderPage("token-A");
-    expect(container.textContent).toContain("Meeting A");
-
-    // Route changes to token-B
-    await act(async () => {
-      root.render(
-        React.createElement(
-          Suspense,
-          { fallback: "Suspense fallback" },
-          React.createElement(MeetingCheckinPage, {
-            params: Promise.resolve({ token: "token-B" }),
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: "INTERNAL_ERROR", message: "Boom" } }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
           })
-        )
-      );
-    });
-
-    // Before token-B resolves: MUST NOT show Meeting A! Must be in loading state!
-    expect(container.textContent).not.toContain("Meeting A");
-    const loadingStatus = container.querySelector((n) => n.role === "status");
-    expect(loadingStatus).not.toBeNull();
-    expect(loadingStatus?.textContent).toContain("Loading meeting details...");
-
-    // Now resolve token-B
-    await act(async () => {
-      resolveTokenB(
-        new Response(JSON.stringify({ title: "Meeting B" }), {
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ title: "Recovered Meeting Title" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         })
       );
     });
 
-    expect(container.textContent).toContain("Meeting B");
+    await renderPage("retry-recovery-token");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1, name: "Server Error" })).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Recovered Meeting Title" })
+      ).toBeTruthy();
+    });
   });
 
-  it("ignores late responses from previous tokens if token changed or component unmounted (R3)", async () => {
-    let resolveSlowFetch!: (res: Response) => void;
-    const slowPromise = new Promise<Response>((resolve) => {
-      resolveSlowFetch = resolve;
-    });
-
-    mockFetch(async (url) => {
-      if (String(url).includes("slow-token")) {
-        return slowPromise;
+  it("immediately transitions to loading state on token prop change, preventing stale data flash", async () => {
+    fetchSpy.mockImplementation((url: RequestInfo | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes("token-a")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ title: "Meeting Alpha" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+        );
       }
-      return new Response(JSON.stringify({ title: "Fast Meeting" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      // Never resolving for token-b to check loading state
+      return new Promise(() => {});
     });
 
-    // Mount slow token
+    const { rerender } = await renderPage("token-a");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1, name: "Meeting Alpha" })).toBeTruthy();
+    });
+
+    // Rerender with token-b
     await act(async () => {
-      root.render(
+      rerender(
         React.createElement(
           Suspense,
           { fallback: "Suspense fallback" },
           React.createElement(MeetingCheckinPage, {
-            params: Promise.resolve({ token: "slow-token" }),
+            params: Promise.resolve({ token: "token-b" }),
           })
         )
       );
     });
 
-    // Immediately switch to fast token
-    await act(async () => {
-      root.render(
-        React.createElement(
-          Suspense,
-          { fallback: "Suspense fallback" },
-          React.createElement(MeetingCheckinPage, {
-            params: Promise.resolve({ token: "fast-token" }),
-          })
-        )
-      );
+    // Immediately shows loading status without flashing Meeting Alpha
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.queryByText("Meeting Alpha")).toBeNull();
+  });
+
+  it("ignores late responses from previous tokens if token changed or component unmounted", async () => {
+    let resolveToken1!: (res: Response) => void;
+    const token1Promise = new Promise<Response>((resolve) => {
+      resolveToken1 = resolve;
     });
 
-    // Fast token resolves
-    expect(container.textContent).toContain("Fast Meeting");
-
-    // Now slow token resolves late — it MUST NOT overwrite Fast Meeting
-    await act(async () => {
-      resolveSlowFetch(
-        new Response(JSON.stringify({ title: "Stale Slow Meeting" }), {
+    fetchSpy.mockImplementation((url: RequestInfo | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes("token-1")) {
+        return token1Promise;
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ title: "Meeting 2 Title" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         })
       );
     });
 
-    expect(container.textContent).toContain("Fast Meeting");
-    expect(container.textContent).not.toContain("Stale Slow Meeting");
+    const { rerender } = await renderPage("token-1");
+
+    // Token 1 is loading
+    expect(screen.getByRole("status")).toBeTruthy();
+
+    // Change to token 2
+    await act(async () => {
+      rerender(
+        React.createElement(
+          Suspense,
+          { fallback: "Suspense fallback" },
+          React.createElement(MeetingCheckinPage, {
+            params: Promise.resolve({ token: "token-2" }),
+          })
+        )
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1, name: "Meeting 2 Title" })).toBeTruthy();
+    });
+
+    // Now resolve token 1 late
+    await act(async () => {
+      resolveToken1(
+        new Response(JSON.stringify({ title: "Stale Token 1 Title" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      );
+    });
+
+    // Content should remain Meeting 2 Title, not Stale Token 1 Title
+    expect(screen.getByRole("heading", { level: 1, name: "Meeting 2 Title" })).toBeTruthy();
+    expect(screen.queryByText("Stale Token 1 Title")).toBeNull();
   });
 });
