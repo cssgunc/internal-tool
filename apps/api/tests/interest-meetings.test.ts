@@ -1,4 +1,5 @@
-import { describe, expect, expectTypeOf, it } from "bun:test";
+import { describe, expect, expectTypeOf, it, spyOn } from "bun:test";
+import QRCode from "qrcode";
 import {
   createInterestMeetingResponseSchema,
   errorResponseSchema,
@@ -42,7 +43,7 @@ function setup(currentSemester: string | null = semesterId) {
   const service = createInterestMeetingService(store, "https://cssg.example");
   const app = createApp({ meetingService: service });
   const client = hc<AppType>("http://localhost", { fetch: app.request.bind(app) });
-  return { app, client, meetings };
+  return { app, client, meetings, service, store };
 }
 
 describe("interest meeting endpoints", () => {
@@ -156,5 +157,42 @@ describe("interest meeting endpoints", () => {
     expectTypeOf<InferResponseType<Create, 409>>().toEqualTypeOf<ErrorResponse>();
     expectTypeOf<InferResponseType<Lookup, 200>>().toEqualTypeOf<PublicCheckinResponse>();
     expectTypeOf<InferResponseType<Lookup, 404>>().toEqualTypeOf<ErrorResponse>();
+  });
+
+  it("does not insert a meeting into the database if QR generation fails", async () => {
+    const { service, meetings, store } = setup();
+    const insertSpy = spyOn(store, "insertMeeting");
+    const qrSpy = spyOn(QRCode, "toString").mockImplementation(async () => {
+      throw new Error("QR generation failed");
+    });
+
+    try {
+      await expect(service.createMeeting(request)).rejects.toThrow("QR generation failed");
+      expect(insertSpy).not.toHaveBeenCalled();
+      expect(meetings).toHaveLength(0);
+    } finally {
+      qrSpy.mockRestore();
+    }
+  });
+
+  it("encodes the canonical check-in URL deterministically in the generated QR SVG", async () => {
+    const { client } = setup();
+    const res = await client.api.v1["interest-meetings"].$post({ json: request });
+    expect(res.status).toBe(201);
+    const parsed = createInterestMeetingResponseSchema.parse(await res.json());
+
+    const expectedSvg = await QRCode.toString(parsed.checkinUrl, {
+      type: "svg",
+      errorCorrectionLevel: "M",
+      margin: 2,
+    });
+    expect(parsed.qrSvg).toBe(expectedSvg);
+
+    const differentUrlSvg = await QRCode.toString("https://cssg.example/checkin/different-token", {
+      type: "svg",
+      errorCorrectionLevel: "M",
+      margin: 2,
+    });
+    expect(parsed.qrSvg).not.toBe(differentUrlSvg);
   });
 });

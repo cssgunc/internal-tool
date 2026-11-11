@@ -12,14 +12,8 @@ export default function Home() {
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <Link
-          href="/interest-meetings"
-          className="rounded-lg bg-navy px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-navy/90"
-        >
-          Exec: Create Meeting & QR
-        </Link>
-        <Link
           href="/checkin"
-          className="rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-center text-sm font-semibold text-neutral-800 shadow-sm hover:bg-neutral-50"
+          className="rounded-lg bg-navy px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-navy/90"
         >
           Public: Join Interested List
         </Link>

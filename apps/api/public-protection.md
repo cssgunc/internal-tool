@@ -43,6 +43,25 @@ returned. `remoteip` is optional and intentionally omitted. Configure allowed
 production hostnames in Cloudflare; future route-specific action/hostname checks
 can be added if forms need stronger token scoping.
 
+## Rate-limit and honeypot order tradeoff (issue #30)
+
+Rate limiting is intentionally applied before schema validation and honeypot evaluation in the middleware pipeline:
+
+```ts
+routes.post(
+  "/",
+  rateLimit({ windowMs: 60_000, max: 10 }), // 1. Transport layer rate limiting
+  validate("json", formSchema), // 2. Body parsing & schema validation
+  verifyTurnstile, // 3. CAPTCHA verification
+  submit // 4. Honeypot check & handler execution
+);
+```
+
+This sequence embodies a deliberate architectural tradeoff between resource protection and detection masking:
+
+- **DoS and Memory Exhaustion Protection**: Rate limiting operates at the transport layer before the server buffers and parses unauthenticated JSON payloads into memory. If honeypot checks preceded rate limiting, the server would be required to parse every inbound JSON body, exposing the endpoint to CPU exhaustion and memory depletion from high-volume automated request floods.
+- **Quota Enforcement Without Detection Leakage**: During normal traffic volumes, submissions with a filled honeypot return a simulated HTTP 200 success response without side effects, preventing bots from discovering that their submission was dropped. Under high-frequency spam floods, however, callers exhaust their rate limit budget and receive HTTP 429 `RATE_LIMITED`. Enforcing request quotas at the transport layer protects infrastructure availability, and the standard HTTP 429 response reveals only that the request rate limit was reached—it leaks no information about whether a honeypot field was detected or evaluated.
+
 ## Environment
 
 Development and tests default to Cloudflare's official always-pass **test** secret.

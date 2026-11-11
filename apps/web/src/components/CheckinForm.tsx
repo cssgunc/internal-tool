@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { INTEREST_KINDS, type InterestKind } from "@internal-tool/shared";
 import { api } from "@/lib/api";
-import { Turnstile } from "./Turnstile";
+import { Turnstile, type TurnstileRef } from "./Turnstile";
 
 interface CheckinFormProps {
   token?: string;
@@ -37,6 +37,19 @@ export function CheckinForm({ token, meetingTitle }: CheckinFormProps) {
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+
+  const turnstileRef = useRef<TurnstileRef>(null);
+
+  const invalidateToken = (errorMessage?: string) => {
+    setTurnstileToken("");
+    turnstileRef.current?.reset();
+    if (errorMessage) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        turnstileToken: errorMessage,
+      }));
+    }
+  };
 
   const toggleInterest = (kind: InterestKind) => {
     setInterests((prev) =>
@@ -98,19 +111,29 @@ export function CheckinForm({ token, meetingTitle }: CheckinFormProps) {
       if (res.ok) {
         setIsSuccess(true);
       } else {
-        const data = await res.json();
-        if ("error" in data) {
-          if (data.error.fields) {
-            setFieldErrors(data.error.fields as Record<string, string>);
-          }
-          if (data.error.message && !data.error.fields) {
-            setGeneralError(data.error.message);
-          }
+        invalidateToken();
+        if (res.status === 429) {
+          setGeneralError("Too many attempts. Please wait a moment before trying again.");
         } else {
-          setGeneralError("An unexpected error occurred. Please try again.");
+          try {
+            const data = await res.json();
+            if ("error" in data) {
+              if (data.error.fields) {
+                setFieldErrors(data.error.fields as Record<string, string>);
+              }
+              if (data.error.message && !data.error.fields) {
+                setGeneralError(data.error.message);
+              }
+            } else {
+              setGeneralError("An unexpected error occurred. Please try again.");
+            }
+          } catch {
+            setGeneralError("An unexpected error occurred. Please try again.");
+          }
         }
       }
     } catch {
+      invalidateToken();
       setGeneralError(
         "Could not submit check-in. Please check your internet connection and try again."
       );
@@ -134,10 +157,12 @@ export function CheckinForm({ token, meetingTitle }: CheckinFormProps) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
           </svg>
         </div>
-        <h2 className="text-2xl font-bold text-navy">You&apos;re Checked In!</h2>
+        <h2 className="text-2xl font-bold text-navy">
+          {meetingTitle ? "Check-in Submitted" : "You're on the List!"}
+        </h2>
         <p className="mt-2 text-neutral-600">
           {meetingTitle
-            ? `Thanks for attending "${meetingTitle}". We've recorded your attendance and interests!`
+            ? "Your check-in was submitted successfully."
             : "Thanks for joining the CSSG Interested list. We'll be in touch with updates!"}
         </p>
       </div>
@@ -302,6 +327,7 @@ export function CheckinForm({ token, meetingTitle }: CheckinFormProps) {
         {/* Turnstile Widget */}
         <div className="pt-2">
           <Turnstile
+            ref={turnstileRef}
             onSuccess={(token) => {
               setTurnstileToken(token);
               if (fieldErrors.turnstileToken) {
@@ -312,7 +338,8 @@ export function CheckinForm({ token, meetingTitle }: CheckinFormProps) {
                 });
               }
             }}
-            onExpire={() => setTurnstileToken("")}
+            onError={() => invalidateToken("Verification check failed. Please retry.")}
+            onExpire={() => invalidateToken("Verification expired. Please verify again.")}
           />
           {fieldErrors.turnstileToken && (
             <p role="alert" className="text-center text-xs text-red-600">
@@ -324,7 +351,7 @@ export function CheckinForm({ token, meetingTitle }: CheckinFormProps) {
         {/* Submit Button */}
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || !turnstileToken}
           className="w-full rounded-lg bg-navy px-4 py-3 text-center text-base font-semibold text-white shadow-sm transition hover:bg-navy/90 focus:ring-2 focus:ring-navy focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isSubmitting ? "Submitting..." : meetingTitle ? "Check In" : "Join List"}

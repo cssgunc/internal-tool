@@ -72,17 +72,17 @@ export function createInterestMeetingService(
 
       // 32 random bytes give the public link a 256-bit token, encoded as URL-safe hex.
       const checkinToken = randomBytes(32).toString("hex");
-      const { id } = await repository.insertMeeting({
-        semesterId,
-        title: request.title,
-        startsAt: new Date(request.startsAt),
-        checkinToken,
-      });
       const checkinUrl = new URL(`/checkin/${checkinToken}`, webUrl).toString();
       const qrSvg = await QRCode.toString(checkinUrl, {
         type: "svg",
         errorCorrectionLevel: "M",
         margin: 2,
+      });
+      const { id } = await repository.insertMeeting({
+        semesterId,
+        title: request.title,
+        startsAt: new Date(request.startsAt),
+        checkinToken,
       });
       return { id, checkinUrl, qrSvg };
     },
