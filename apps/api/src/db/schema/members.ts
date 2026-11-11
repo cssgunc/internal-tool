@@ -7,6 +7,7 @@ import {
   boolean,
   timestamp,
   customType,
+  index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { user } from "./auth";
@@ -19,39 +20,48 @@ const citext = customType<{ data: string }>({
 
 export const memberStatus = pgEnum("member_status", ["active", "alumni"]);
 
-export const members = pgTable("members", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: text("user_id")
-    .unique()
-    .references(() => user.id, { onDelete: "set null" }),
-  firstName: text("first_name").notNull(),
-  lastName: text("last_name").notNull(),
-  displayName: text("display_name"),
-  email: citext("email").notNull().unique(),
-  otherEmails: citext("other_emails")
-    .array()
-    .notNull()
-    .default(sql`'{}'::citext[]`),
-  pronouns: text("pronouns"),
-  gradYear: integer("grad_year"),
-  majors: text("majors")
-    .array()
-    .notNull()
-    .default(sql`'{}'::text[]`),
-  minors: text("minors")
-    .array()
-    .notNull()
-    .default(sql`'{}'::text[]`),
-  githubUsername: citext("github_username").unique(),
-  linkedinUrl: text("linkedin_url"),
-  portfolioUrl: text("portfolio_url"),
-  isSuperuser: boolean("is_superuser").notNull().default(false),
-  status: memberStatus("status").notNull().default("active"),
-  invitedAt: timestamp("invited_at", { withTimezone: true }),
-  activatedAt: timestamp("activated_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const members = pgTable(
+  "members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .unique()
+      .references(() => user.id, { onDelete: "set null" }),
+    firstName: text("first_name").notNull(),
+    lastName: text("last_name").notNull(),
+    displayName: text("display_name"),
+    email: citext("email").notNull().unique(),
+    otherEmails: citext("other_emails")
+      .array()
+      .notNull()
+      .default(sql`'{}'::citext[]`),
+    pronouns: text("pronouns"),
+    gradYear: integer("grad_year"),
+    majors: text("majors")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    minors: text("minors")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    githubUsername: citext("github_username").unique(),
+    linkedinUrl: text("linkedin_url"),
+    portfolioUrl: text("portfolio_url"),
+    isSuperuser: boolean("is_superuser").notNull().default(false),
+    status: memberStatus("status").notNull().default("active"),
+    invitedAt: timestamp("invited_at", { withTimezone: true }),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    // Search queries must use these exact expressions with ILIKE, including the citext cast.
+    index("members_first_name_trgm_idx").using("gin", table.firstName.op("gin_trgm_ops")),
+    index("members_last_name_trgm_idx").using("gin", table.lastName.op("gin_trgm_ops")),
+    index("members_email_trgm_idx").using("gin", sql`(${table.email}::text) gin_trgm_ops`),
+  ]
+);
