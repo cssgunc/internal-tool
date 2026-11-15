@@ -4,4 +4,6 @@ export * from "./auth";
 export * from "./semesters";
 export * from "./members";
 export * from "./positions";
+export * from "./projects";
+export * from "./member-positions";
 export * from "./recruiting";
