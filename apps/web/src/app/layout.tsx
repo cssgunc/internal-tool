@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { UserHeader } from "@/components/UserHeader";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,7 +10,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className="bg-white text-neutral-900 antialiased">{children}</body>
+      <body className="bg-white text-neutral-900 antialiased">
+        <UserHeader />
+        {children}
+      </body>
     </html>
   );
 }

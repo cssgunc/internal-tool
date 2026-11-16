@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { isPublicRoute } from "./lib/routes";
+
+export { isPublicRoute } from "./lib/routes";
 
 export const config = {
   matcher: [
@@ -13,15 +16,7 @@ export const config = {
   ],
 };
 
-const PUBLIC_ROUTE_PREFIXES = ["/sign-in", "/set-password", "/checkin"];
-
 const SESSION_COOKIE_NAMES = ["better-auth.session_token", "__Secure-better-auth.session_token"];
-
-export function isPublicRoute(pathname: string): boolean {
-  return PUBLIC_ROUTE_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
-}
 
 export function hasSessionCookie(request: NextRequest): boolean {
   for (const name of SESSION_COOKIE_NAMES) {
