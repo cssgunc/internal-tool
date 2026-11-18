@@ -114,6 +114,8 @@ describe("SignInForm and /sign-in page", () => {
     ["backslash-only URL", "\\evil.com"],
     ["own page to avoid loop", "/sign-in"],
     ["own page with query to avoid loop", "/sign-in?next=/foo"],
+    ["own page with trailing slash to avoid loop", "/sign-in/"],
+    ["own page with hash to avoid loop", "/sign-in#section"],
   ])(
     "rejects unsafe or recursive ?next= (%s) and redirects to '/'",
     async (_: string, nextVal: string) => {

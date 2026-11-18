@@ -106,14 +106,14 @@ export function SetPasswordForm({ onSuccess }: SetPasswordFormProps) {
       } else if (res.status === 400 || res.status === 401 || res.status === 422) {
         let errorMsg = "Invalid, expired, or already-used token. Please request a new setup link.";
         try {
-          const data = (await res.json()) as { code?: string; message?: string };
-          if (data.code === "INVALID_TOKEN") {
+          const data = (await res.json()) as { code?: string };
+          if (data.code === "PASSWORD_TOO_SHORT" || data.code === "PASSWORD_TOO_LONG") {
+            errorMsg = "Password must be at least 8 characters long.";
+          } else if (data.code === "INVALID_TOKEN" || data.code === "TOKEN_EXPIRED") {
             errorMsg = "Invalid, expired, or already-used token. Please request a new setup link.";
-          } else if (data.message) {
-            errorMsg = data.message;
           }
         } catch {
-          // fallback to standard token error
+          // fallback to controlled token error
         }
         setError(errorMsg);
       } else {

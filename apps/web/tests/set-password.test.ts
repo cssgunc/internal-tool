@@ -188,6 +188,39 @@ describe("SetPasswordForm and /set-password page", () => {
     });
   });
 
+  it("handles PASSWORD_TOO_SHORT (HTTP 400) and displays controlled user error", async () => {
+    currentSearchParams = new URLSearchParams("token=valid-token");
+
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: "PASSWORD_TOO_SHORT",
+          message: "Internal server error message that should not be shown directly",
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+
+    render(React.createElement(SetPasswordForm));
+
+    fireEvent.change(screen.getByLabelText(/^new password/i), {
+      target: { value: "validlength123" },
+    });
+    fireEvent.change(screen.getByLabelText(/confirm password/i), {
+      target: { value: "validlength123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /set password/i }));
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toBe("Password must be at least 8 characters long.");
+      expect(alert.textContent).not.toContain("Internal server error message");
+    });
+  });
+
   it("displays server error message on HTTP 500", async () => {
     currentSearchParams = new URLSearchParams("token=some-token");
 

@@ -90,6 +90,20 @@ describe("proxy route protection", () => {
         "http://localhost:3000/sign-in?next=%2Fexec%2Finterest-meetings%3Ftab%3Dactive%26view%3Dgrid"
       );
     });
+
+    it.each([
+      ["/members/dr.smith", "http://localhost:3000/sign-in?next=%2Fmembers%2Fdr.smith"],
+      ["/releases/v1.0", "http://localhost:3000/sign-in?next=%2Freleases%2Fv1.0"],
+    ])(
+      "protects dot-containing application route %s and redirects to sign-in",
+      (path, expectedRedirect) => {
+        const req = createRequest(path);
+        const res = proxy(req);
+
+        expect(res.status).toBe(307);
+        expect(res.headers.get("location")).toBe(expectedRedirect);
+      }
+    );
   });
 
   describe("authenticated access to protected routes", () => {

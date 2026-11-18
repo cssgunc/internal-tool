@@ -40,9 +40,13 @@ export function SignInForm({ onSuccess }: SignInFormProps) {
       if (res.ok) {
         const nextParam = searchParams.get("next");
         const safePath = getSafeRedirectPath(nextParam, "/");
-        // Avoid redirecting back to /sign-in
-        const destination =
-          safePath === "/sign-in" || safePath.startsWith("/sign-in?") ? "/" : safePath;
+        // Avoid redirecting back to /sign-in (including subpaths, queries, or fragments)
+        const isSignInTarget =
+          safePath === "/sign-in" ||
+          safePath.startsWith("/sign-in/") ||
+          safePath.startsWith("/sign-in?") ||
+          safePath.startsWith("/sign-in#");
+        const destination = isSignInTarget ? "/" : safePath;
 
         if (onSuccess) {
           onSuccess(destination);

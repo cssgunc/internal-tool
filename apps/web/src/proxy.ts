@@ -18,6 +18,8 @@ export const config = {
 
 const SESSION_COOKIE_NAMES = ["better-auth.session_token", "__Secure-better-auth.session_token"];
 
+const STATIC_FILE_REGEX = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|txt|xml|woff2?|map)$/i;
+
 export function hasSessionCookie(request: NextRequest): boolean {
   for (const name of SESSION_COOKIE_NAMES) {
     const cookie = request.cookies.get(name);
@@ -66,7 +68,7 @@ export function proxy(request: NextRequest): NextResponse {
     pathname.startsWith("/api/") ||
     pathname === "/api" ||
     pathname.startsWith("/_next/") ||
-    pathname.includes(".")
+    STATIC_FILE_REGEX.test(pathname)
   ) {
     return NextResponse.next();
   }

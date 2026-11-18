@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { MeResponse } from "@internal-tool/shared";
+import { getSafeRedirectPath } from "@internal-tool/shared";
 import { isPublicRoute } from "@/lib/routes";
 
 type State =
@@ -17,12 +18,23 @@ export function UserHeader() {
   const router = useRouter();
 
   const isPublic = !pathname || isPublicRoute(pathname);
+  const [prevPathname, setPrevPathname] = useState(pathname);
   const [state, setState] = useState<State>(() =>
     isPublic ? { status: "idle" } : { status: "loading" }
   );
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
+
+  // Adjust state during render when route changes (standard React pattern to avoid cascading renders)
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
+    if (isPublic) {
+      setState({ status: "idle" });
+    } else {
+      setState({ status: "loading" });
+    }
+  }
 
   useEffect(() => {
     let ignore = false;
@@ -41,12 +53,33 @@ export function UserHeader() {
 
         if (res.ok) {
           const data = (await res.json()) as MeResponse;
+          // Ensure cancellation check also covers after the async res.json() parse
+          if (ignore) return;
           setState({ status: "authenticated", user: data });
         } else if (res.status === 401) {
+          if (ignore) return;
           setState({ status: "idle" });
-          router.push("/sign-in");
+          let currentTarget = pathname;
+          if (
+            typeof window !== "undefined" &&
+            window.location.search &&
+            !currentTarget.includes("?")
+          ) {
+            currentTarget = `${currentTarget}${window.location.search}`;
+          }
+          const safeDestination = getSafeRedirectPath(currentTarget, "/");
+          const isLoop =
+            safeDestination === "/sign-in" ||
+            safeDestination.startsWith("/sign-in/") ||
+            safeDestination.startsWith("/sign-in?") ||
+            safeDestination === "/set-password" ||
+            safeDestination.startsWith("/set-password/") ||
+            safeDestination.startsWith("/set-password?");
+          const destination = isLoop ? "/" : safeDestination;
+          router.push(`/sign-in?next=${encodeURIComponent(destination)}`);
           router.refresh();
         } else {
+          if (ignore) return;
           setState({
             status: "error",
             message: "Failed to load user information.",

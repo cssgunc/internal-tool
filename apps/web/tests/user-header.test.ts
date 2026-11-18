@@ -95,11 +95,50 @@ describe("UserHeader component", () => {
       render(React.createElement(UserHeader));
 
       await waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith("/sign-in");
+        expect(mockPush).toHaveBeenCalledWith("/sign-in?next=%2F");
         expect(mockRefresh).toHaveBeenCalledTimes(1);
       });
 
       expect(screen.queryByText(/sign out/i)).toBeNull();
+    });
+
+    it("preserves path and query parameters in ?next= when /me returns 401 on /semesters?year=2026", async () => {
+      currentPathname = "/semesters?year=2026";
+      fetchSpy.mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { code: "UNAUTHORIZED", message: "Sign in to continue." } }),
+          {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      );
+
+      render(React.createElement(UserHeader));
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith("/sign-in?next=%2Fsemesters%3Fyear%3D2026");
+        expect(mockRefresh).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("avoids redirect loop if 401 occurs and falls back to '/'", async () => {
+      currentPathname = "/sign-in?next=%2Fsemesters";
+      // Even if mistakenly loaded on /sign-in, it should not create /sign-in?next=/sign-in
+      fetchSpy.mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { code: "UNAUTHORIZED", message: "Sign in to continue." } }),
+          {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      );
+
+      render(React.createElement(UserHeader));
+
+      // Public route returns null immediately and does not fetch /me
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it("displays error state on network failure and recovers on retry", async () => {
@@ -130,6 +169,109 @@ describe("UserHeader component", () => {
         expect(screen.getByText("Jane Doe")).toBeTruthy();
         expect(screen.queryByRole("alert")).toBeNull();
       });
+    });
+  });
+
+  describe("navigation lifecycle and state transitions", () => {
+    it("resets state to loading on protected -> protected navigation and displays updated user", async () => {
+      currentPathname = "/";
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: "user-1", email: "alice@example.com", name: "Alice Smith" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      const { rerender } = render(React.createElement(UserHeader));
+
+      await waitFor(() => {
+        expect(screen.getByText("Alice Smith")).toBeTruthy();
+      });
+
+      // Navigate to /semesters with a pending request
+      currentPathname = "/semesters";
+      let resolveSecondUser: (value: Response) => void;
+      fetchSpy.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecondUser = resolve;
+        })
+      );
+
+      rerender(React.createElement(UserHeader));
+
+      // Alice Smith should no longer be displayed; loading indicator should appear
+      expect(screen.queryByText("Alice Smith")).toBeNull();
+      expect(screen.getByRole("status")).toBeTruthy();
+
+      // Complete second fetch
+      resolveSecondUser!(
+        new Response(
+          JSON.stringify({ id: "user-2", email: "bob@example.com", name: "Bob Jones" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Bob Jones")).toBeTruthy();
+      });
+    });
+
+    it("immediately transitions to idle and avoids fetching when navigating from protected to public route", async () => {
+      currentPathname = "/";
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: "user-1", email: "alice@example.com", name: "Alice Smith" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      const { rerender, container } = render(React.createElement(UserHeader));
+
+      await waitFor(() => {
+        expect(screen.getByText("Alice Smith")).toBeTruthy();
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      // Navigate to public /sign-in
+      currentPathname = "/sign-in";
+      rerender(React.createElement(UserHeader));
+
+      // Header is completely hidden on public routes
+      expect(container.firstChild).toBeNull();
+      // No extra fetch dispatched for /me
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("cancels state update if component route changes before async JSON parse completes", async () => {
+      currentPathname = "/semesters";
+
+      let resolveFetch: (value: Response) => void;
+      fetchSpy.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+      );
+
+      const { rerender, container } = render(React.createElement(UserHeader));
+
+      // Route changes to public /sign-in before fetch finishes
+      currentPathname = "/sign-in";
+      rerender(React.createElement(UserHeader));
+
+      // Now fetch finishes late
+      resolveFetch!(
+        new Response(
+          JSON.stringify({ id: "user-1", email: "alice@example.com", name: "Alice Smith" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      // Give event loop time to process async promise
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Should remain null, never displaying the user on public page
+      expect(container.firstChild).toBeNull();
     });
   });
 
