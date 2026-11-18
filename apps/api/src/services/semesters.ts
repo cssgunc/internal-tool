@@ -1,4 +1,3 @@
-import { asc, count, desc, eq, sql } from "drizzle-orm";
 import type {
   CreateSemesterInput,
   PageQuery,
@@ -6,11 +5,18 @@ import type {
   SemesterList,
   UpdateSemesterDatesInput,
 } from "@internal-tool/shared";
+import { asc, count, desc, eq, sql } from "drizzle-orm";
 import type { db } from "../db";
 import { semesters } from "../db/schema";
+import { isUniqueConstraintViolation } from "../lib/db-errors";
 import { ApiError } from "../lib/errors";
 
-type Database = Pick<typeof db, "select">;
+// Accept either the main database or a transaction for database operations.
+type Database = Pick<typeof db, "select" | "insert" | "update">;
+
+// Dedicated advisory lock for switching the current semester.
+// Keep this key unique across application features.
+const SEMESTER_CURRENT_LOCK = [2026, 29] as const;
 
 const semesterColumns = {
   id: semesters.id,
@@ -22,24 +28,18 @@ const semesterColumns = {
   isCurrent: semesters.isCurrent,
 };
 
+// Load the database only when needed so tests can supply their own transaction.
 async function getDatabase() {
   return (await import("../db")).db;
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-
-  const value = error as { code?: string; cause?: unknown };
-
-  return value.code === "23505" || (value.cause !== undefined && isUniqueViolation(value.cause));
-}
-
 export async function listSemesters(
   { page, pageSize }: PageQuery,
-  database?: Database
+  database?: Pick<Database, "select">
 ): Promise<SemesterList> {
   const conn = database ?? (await getDatabase());
 
+  // Stable ordering ensures predictable pagination.
   const items = await conn
     .select(semesterColumns)
     .from(semesters)
@@ -47,18 +47,22 @@ export async function listSemesters(
     .limit(pageSize)
     .offset((page - 1) * pageSize);
 
+  // Count all matching semesters, not just those on this page.
   const [totals] = await conn.select({ total: count() }).from(semesters);
 
   return { items, total: totals?.total ?? 0 };
 }
 
-export async function createSemester(input: CreateSemesterInput): Promise<Semester> {
-  const database = await getDatabase();
+export async function createSemester(
+  input: CreateSemesterInput,
+  database?: Pick<Database, "insert">
+): Promise<Semester> {
+  const conn = database ?? (await getDatabase());
 
   const name = `${input.term === "fall" ? "Fall" : "Spring"} ${input.year}`;
 
   try {
-    const [created] = await database
+    const [created] = await conn
       .insert(semesters)
       .values({
         name,
@@ -75,7 +79,7 @@ export async function createSemester(input: CreateSemesterInput): Promise<Semest
 
     return created;
   } catch (error) {
-    if (isUniqueViolation(error)) {
+    if (isUniqueConstraintViolation(error, "semesters_name_unique")) {
       throw new ApiError(409, "CONFLICT", "A semester with this term and year already exists.");
     }
 
@@ -85,11 +89,12 @@ export async function createSemester(input: CreateSemesterInput): Promise<Semest
 
 export async function updateSemesterDates(
   id: string,
-  input: UpdateSemesterDatesInput
+  input: UpdateSemesterDatesInput,
+  database?: Pick<Database, "update">
 ): Promise<Semester> {
-  const database = await getDatabase();
+  const conn = database ?? (await getDatabase());
 
-  const [updated] = await database
+  const [updated] = await conn
     .update(semesters)
     .set({
       startsOn: input.startsOn,
@@ -112,8 +117,10 @@ export async function makeCurrentSemester(
   const conn = database ?? (await getDatabase());
 
   return conn.transaction(async (tx) => {
-    // Serialize concurrent semester switches.
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(2026, 29)`);
+    // Serialize concurrent semester switches using a transaction-scoped lock.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(${SEMESTER_CURRENT_LOCK[0]}, ${SEMESTER_CURRENT_LOCK[1]})`
+    );
 
     const [target] = await tx
       .select(semesterColumns)
@@ -125,13 +132,13 @@ export async function makeCurrentSemester(
       throw new ApiError(404, "NOT_FOUND", "Semester not found.");
     }
 
-    // Repeated requests do not change anything.
+    // Making an already-current semester current again is a no-op.
     if (target.isCurrent) {
       return target;
     }
 
-    // Both updates happen inside the same transaction.
-    // Other connections never see the intermediate state.
+    // Both updates happen atomically. Other connections never see
+    // the intermediate state where no semester is current.
     await tx.update(semesters).set({ isCurrent: false }).where(eq(semesters.isCurrent, true));
 
     const [updated] = await tx

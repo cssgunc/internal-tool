@@ -51,22 +51,28 @@ async function responseError(response: Response): Promise<{
   fields: FieldErrors;
 }> {
   try {
-    const body = (await response.json()) as {
-      error?: {
-        message?: string;
-        fields?: FieldErrors;
-      };
-    };
+    const body = await response.json();
 
-    return {
-      message: body.error?.message ?? "Request failed.",
-      fields: body.error?.fields ?? {},
-    };
+    if (body && typeof body === "object" && "error" in body) {
+      const error = body.error;
+
+      if (error && typeof error === "object") {
+        return {
+          message:
+            "message" in error && typeof error.message === "string"
+              ? error.message
+              : "Request failed.",
+          fields:
+            "fields" in error && error.fields && typeof error.fields === "object"
+              ? (error.fields as FieldErrors)
+              : {},
+        };
+      }
+    }
+
+    return { message: "Request failed.", fields: {} };
   } catch {
-    return {
-      message: "Request failed.",
-      fields: {},
-    };
+    return { message: "Request failed.", fields: {} };
   }
 }
 
@@ -100,11 +106,9 @@ export default function SemestersPage() {
   }, []);
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => clearTimeout(timeout);
+    // Initial data fetch; state updates happen after the API response.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
   }, [load]);
 
   function updateField<K extends keyof FormValues>(key: K, value: FormValues[K]) {

@@ -1,104 +1,123 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { eq } from "drizzle-orm";
-import { db } from "../src/db";
-import { semesters } from "../src/db/schema";
+import { describe, expect, it } from "bun:test";
+import { TransactionRollbackError } from "drizzle-orm";
+import type { db } from "../src/db";
 import { env } from "../src/env";
 import { ApiError } from "../src/lib/errors";
 import { createSemester, updateSemesterDates } from "../src/services/semesters";
 
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 const testYear = 2099;
-let testSemesterId: string | undefined;
 
-async function cleanup() {
-  if (!testSemesterId) return;
+async function withRollbackTransaction(run: (tx: Transaction) => Promise<void>): Promise<void> {
+  const { db: database } = await import("../src/db");
 
-  await db.delete(semesters).where(eq(semesters.id, testSemesterId));
-  testSemesterId = undefined;
+  try {
+    await database.transaction(async (tx) => {
+      await run(tx);
+
+      // Always discard the test data rather than committing it.
+      tx.rollback();
+    });
+  } catch (error) {
+    if (!(error instanceof TransactionRollbackError)) {
+      throw error;
+    }
+  }
 }
 
 describe.skipIf(!env.DATABASE_URL)("semester database operations", () => {
-  beforeAll(async () => {
-    const existing = await db
-      .select({ id: semesters.id })
-      .from(semesters)
-      .where(eq(semesters.name, `Fall ${testYear}`))
-      .limit(1);
-
-    if (existing.length > 0) {
-      throw new Error(
-        `Fall ${testYear} already exists. Choose an unused test year before running these tests.`
-      );
-    }
-  });
-
-  afterAll(cleanup);
-
   it("creates a semester with an automatically generated name", async () => {
-    const created = await createSemester({
-      term: "fall",
-      year: testYear,
-      startsOn: "2099-08-20",
-      endsOn: "2099-12-10",
+    await withRollbackTransaction(async (tx) => {
+      const created = await createSemester(
+        {
+          term: "fall",
+          year: testYear,
+          startsOn: "2099-08-20",
+          endsOn: "2099-12-10",
+        },
+        tx
+      );
+
+      expect(created.name).toBe("Fall 2099");
+      expect(created.term).toBe("fall");
+      expect(created.year).toBe(testYear);
+      expect(created.isCurrent).toBe(false);
     });
-
-    testSemesterId = created.id;
-
-    expect(created.name).toBe("Fall 2099");
-    expect(created.term).toBe("fall");
-    expect(created.year).toBe(testYear);
-    expect(created.isCurrent).toBe(false);
   });
 
   it("rejects duplicate semesters with 409 CONFLICT", async () => {
-    expect(testSemesterId).toBeDefined();
-
-    try {
-      await createSemester({
-        term: "fall",
+    await withRollbackTransaction(async (tx) => {
+      const input = {
+        term: "fall" as const,
         year: testYear,
         startsOn: "2099-08-20",
         endsOn: "2099-12-10",
-      });
+      };
 
-      throw new Error("Expected a duplicate conflict.");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ApiError);
+      await createSemester(input, tx);
 
-      if (error instanceof ApiError) {
-        expect(error.status).toBe(409);
-        expect(error.code).toBe("CONFLICT");
+      try {
+        await createSemester(input, tx);
+        throw new Error("Expected a duplicate conflict.");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+
+        if (error instanceof ApiError) {
+          expect(error.status).toBe(409);
+          expect(error.code).toBe("CONFLICT");
+        }
       }
-    }
+    });
   });
 
   it("updates semester dates", async () => {
-    expect(testSemesterId).toBeDefined();
-    if (!testSemesterId) return;
+    await withRollbackTransaction(async (tx) => {
+      const created = await createSemester(
+        {
+          term: "fall",
+          year: testYear,
+          startsOn: "2099-08-20",
+          endsOn: "2099-12-10",
+        },
+        tx
+      );
 
-    const updated = await updateSemesterDates(testSemesterId, {
-      startsOn: "2099-08-25",
-      endsOn: "2099-12-15",
+      const updated = await updateSemesterDates(
+        created.id,
+        {
+          startsOn: "2099-08-25",
+          endsOn: "2099-12-15",
+        },
+        tx
+      );
+
+      expect(updated.startsOn).toBe("2099-08-25");
+      expect(updated.endsOn).toBe("2099-12-15");
     });
-
-    expect(updated.startsOn).toBe("2099-08-25");
-    expect(updated.endsOn).toBe("2099-12-15");
   });
 
   it("returns 404 when updating a nonexistent semester", async () => {
-    try {
-      await updateSemesterDates("00000000-0000-4000-8000-000000000001", {
-        startsOn: "2099-08-20",
-        endsOn: "2099-12-10",
-      });
+    await withRollbackTransaction(async (tx) => {
+      try {
+        await updateSemesterDates(
+          "00000000-0000-4000-8000-000000000001",
+          {
+            startsOn: "2099-08-20",
+            endsOn: "2099-12-10",
+          },
+          tx
+        );
 
-      throw new Error("Expected a not-found error.");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ApiError);
+        throw new Error("Expected a not-found error.");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
 
-      if (error instanceof ApiError) {
-        expect(error.status).toBe(404);
-        expect(error.code).toBe("NOT_FOUND");
+        if (error instanceof ApiError) {
+          expect(error.status).toBe(404);
+          expect(error.code).toBe("NOT_FOUND");
+        }
       }
-    }
+    });
   });
 });
