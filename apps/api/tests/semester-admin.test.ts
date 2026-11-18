@@ -73,6 +73,10 @@ describe.skipIf(!env.DATABASE_URL)("semester administration HTTP authorization",
   let ordinaryCookie = "";
   let superuserCookie = "";
   let alumniCookie = "";
+  // Sign-in is rate limited per client IP, and a test request has none, so each
+  // sign-in gets its own address the way auth.test.ts does.
+  let ipCounter = 0;
+  const initialClientIpSource = env.CLIENT_IP_SOURCE;
 
   async function createTestMember(
     email: string,
@@ -99,6 +103,7 @@ describe.skipIf(!env.DATABASE_URL)("semester administration HTTP authorization",
       headers: {
         "content-type": "application/json",
         origin: env.BETTER_AUTH_URL,
+        "X-Real-IP": `203.0.113.${++ipCounter}`,
       },
       body: JSON.stringify({ email, password }),
     });
@@ -115,12 +120,14 @@ describe.skipIf(!env.DATABASE_URL)("semester administration HTTP authorization",
   }
 
   beforeAll(async () => {
+    env.CLIENT_IP_SOURCE = "railway";
     ordinaryCookie = await createTestMember(ordinaryEmail, false);
     superuserCookie = await createTestMember(superuserEmail, true);
     alumniCookie = await createTestMember(alumniEmail, true, "alumni");
   });
 
   afterAll(async () => {
+    env.CLIENT_IP_SOURCE = initialClientIpSource;
     for (const email of [ordinaryEmail, superuserEmail, alumniEmail]) {
       await db.delete(members).where(eq(members.email, email));
       await db.delete(user).where(eq(user.email, email));

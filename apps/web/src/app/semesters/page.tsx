@@ -46,7 +46,7 @@ function validationFields(result: {
   );
 }
 
-async function responseError(response: Response): Promise<{
+async function responseError(response: { json(): Promise<unknown> }): Promise<{
   message: string;
   fields: FieldErrors;
 }> {
