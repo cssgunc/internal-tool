@@ -11,4 +11,5 @@ export * from "./forms/validator";
 export * from "./interest";
 export * from "./lists";
 export * from "./me";
+export * from "./members";
 export * from "./semesters";
