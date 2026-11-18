@@ -10,7 +10,9 @@ import type {
 import { ApiError } from "../lib/errors";
 import type { db } from "../db";
 import { memberPositions, positions, projects } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { DrizzleQueryError, eq } from "drizzle-orm";
+import { diffChanges, recordAudit } from "./audit";
+import type { AuditEntry } from "./audit";
 
 type Database = typeof db;
 type AssignmentCaller = { isSuperuser: boolean };
@@ -46,11 +48,19 @@ type PositionLockContext = {
     devSubrole: NonNullable<AssignPositionRequest["devSubrole"]> | null;
     assignedBy: string | null;
   }): Promise<MemberPosition>;
+  // Written in the same transaction as the assignment (TDD 2.5).
+  recordAudit(entry: AuditEntry): Promise<void>;
 };
 
 type MemberPositionRemovalContext = {
   grantsExec: boolean;
+  // What's being removed, for the audit entry.
+  assignment: Pick<
+    MemberPosition,
+    "memberId" | "positionId" | "semesterId" | "projectId" | "devSubrole"
+  >;
   remove(): Promise<boolean>;
+  recordAudit(entry: AuditEntry): Promise<void>;
 };
 
 export interface ProjectsStore {
@@ -84,17 +94,32 @@ function toMemberPosition(row: typeof memberPositions.$inferSelect): MemberPosit
   };
 }
 
-function uniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "23505"
-  );
+// Drizzle wraps driver errors in DrizzleQueryError; the Postgres error is its cause.
+function uniqueViolation(error: unknown): { constraint_name?: unknown } | undefined {
+  const cause = error instanceof DrizzleQueryError ? error.cause : error;
+  if (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    (cause as { code?: unknown }).code === "23505"
+  ) {
+    return cause as { constraint_name?: unknown };
+  }
+  return undefined;
 }
 
 function conflictOnUniqueViolation(error: unknown): never {
-  if (uniqueViolation(error)) {
+  const violation = uniqueViolation(error);
+  // Assignments to different project positions take different locks, so the
+  // one-project-per-semester index is what stops a member landing on two projects at once.
+  if (violation?.constraint_name === "member_positions_one_project_per_semester") {
+    throw new ApiError(
+      409,
+      "ALREADY_ON_PROJECT",
+      "The member is already assigned to another project."
+    );
+  }
+  if (violation) {
     throw new ApiError(409, "CONFLICT", "The requested assignment or slug is already in use.");
   }
   throw error;
@@ -214,6 +239,9 @@ function createProjectsStore(database: Database): ProjectsStore {
             if (!row) throw new Error("Position assignment insert returned no row.");
             return toMemberPosition(row);
           },
+          async recordAudit(entry) {
+            await recordAudit(entry, tx);
+          },
         });
       });
     },
@@ -224,6 +252,11 @@ function createProjectsStore(database: Database): ProjectsStore {
           .select({
             id: memberPositions.id,
             grantsExec: positions.grantsExec,
+            memberId: memberPositions.memberId,
+            positionId: memberPositions.positionId,
+            semesterId: memberPositions.semesterId,
+            projectId: memberPositions.projectId,
+            devSubrole: memberPositions.devSubrole,
           })
           .from(memberPositions)
           .innerJoin(positions, eq(memberPositions.positionId, positions.id))
@@ -231,8 +264,13 @@ function createProjectsStore(database: Database): ProjectsStore {
           .for("update");
         if (!assignment) return run(undefined);
 
+        const { grantsExec, memberId, positionId, semesterId, projectId, devSubrole } = assignment;
         return run({
-          grantsExec: assignment.grantsExec,
+          grantsExec,
+          assignment: { memberId, positionId, semesterId, projectId, devSubrole },
+          async recordAudit(entry) {
+            await recordAudit(entry, tx);
+          },
           async remove() {
             const [removed] = await tx
               .delete(memberPositions)
@@ -244,6 +282,16 @@ function createProjectsStore(database: Database): ProjectsStore {
       });
     },
   };
+}
+
+function auditFields(
+  assignment: Pick<
+    MemberPosition,
+    "memberId" | "positionId" | "semesterId" | "projectId" | "devSubrole"
+  >
+) {
+  const { memberId, positionId, semesterId, projectId, devSubrole } = assignment;
+  return { memberId, positionId, semesterId, projectId, devSubrole };
 }
 
 async function defaultStore(): Promise<ProjectsStore> {
@@ -362,8 +410,7 @@ export function createProjectsService(store?: ProjectsStore) {
             throw new ApiError(409, "CONFLICT", "The position has no available seats.");
           }
 
-          // TODO(audit): record the member-position assignment.
-          return tx.insertAssignment({
+          const assigned = await tx.insertAssignment({
             memberId,
             positionId: input.positionId,
             semesterId: input.semesterId,
@@ -371,6 +418,14 @@ export function createProjectsService(store?: ProjectsStore) {
             devSubrole: input.devSubrole ?? null,
             assignedBy: null,
           });
+          // TODO(auth): pass the signed-in member as the audit actor; until then it's System.
+          await tx.recordAudit({
+            action: "position.assign",
+            targetType: "member_position",
+            targetId: assigned.id,
+            changes: diffChanges(null, auditFields(assigned)),
+          });
+          return assigned;
         });
       } catch (error) {
         conflictOnUniqueViolation(error);
@@ -387,10 +442,16 @@ export function createProjectsService(store?: ProjectsStore) {
           throw new ApiError(403, "FORBIDDEN", "Only a superuser can remove an Exec position.");
         }
 
-        // TODO(audit): record the member-position removal.
         if (!(await assignment.remove())) {
           throw new ApiError(404, "NOT_FOUND", "Position assignment not found.");
         }
+        // TODO(auth): pass the signed-in member as the audit actor; until then it's System.
+        await assignment.recordAudit({
+          action: "position.remove",
+          targetType: "member_position",
+          targetId: id,
+          changes: diffChanges(auditFields(assignment.assignment), null),
+        });
         return { id, removed: true };
       });
     },

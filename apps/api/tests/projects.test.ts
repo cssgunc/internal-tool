@@ -11,6 +11,7 @@ import { eq, inArray } from "drizzle-orm";
 import { createApp } from "../src/app";
 import { env } from "../src/env";
 import { ApiError } from "../src/lib/errors";
+import type { AuditEntry } from "../src/services/audit";
 import type { ProjectsStore } from "../src/services/projects";
 import { createProjectsService } from "../src/services/projects";
 import type { MemberPosition, Project } from "@internal-tool/shared";
@@ -64,6 +65,7 @@ function setup(options: { isSuperuser?: boolean; assignments?: MemberPosition[] 
     project("00000000-0000-4000-8000-000000000012", otherSemesterId, "Other Semester", "other"),
   ];
   const assignments = [...(options.assignments ?? [])];
+  const audits: AuditEntry[] = [];
   const positions = new Map([
     [
       developerId,
@@ -188,6 +190,9 @@ function setup(options: { isSuperuser?: boolean; assignments?: MemberPosition[] 
           assignments.push(row);
           return row;
         },
+        async recordAudit(entry) {
+          audits.push(entry);
+        },
       });
     },
     async withMemberPositionLock(id, run) {
@@ -197,6 +202,16 @@ function setup(options: { isSuperuser?: boolean; assignments?: MemberPosition[] 
       if (!position) throw new Error("Assignment position not found.");
       return run({
         grantsExec: position.grantsExec,
+        assignment: {
+          memberId: row.memberId,
+          positionId: row.positionId,
+          semesterId: row.semesterId,
+          projectId: row.projectId,
+          devSubrole: row.devSubrole,
+        },
+        async recordAudit(entry) {
+          audits.push(entry);
+        },
         async remove() {
           const index = assignments.findIndex((candidate) => candidate.id === id);
           if (index < 0) return false;
@@ -212,7 +227,7 @@ function setup(options: { isSuperuser?: boolean; assignments?: MemberPosition[] 
     projectsService: service,
     assignmentCaller: () => ({ isSuperuser: options.isSuperuser ?? true }),
   });
-  return { app, assignments, projectRows };
+  return { app, assignments, audits, projectRows };
 }
 
 describe("projects endpoints", () => {
@@ -405,6 +420,93 @@ describe("member position endpoints", () => {
     expect(errorResponseSchema.parse(await response.json()).error.code).toBe("CONFLICT");
   });
 
+  it("maps a wrapped one-project-per-semester violation to ALREADY_ON_PROJECT", async () => {
+    const { DrizzleQueryError } = await import("drizzle-orm");
+    const violation = Object.assign(new Error("duplicate key"), {
+      code: "23505",
+      constraint_name: "member_positions_one_project_per_semester",
+    });
+    const service = createProjectsService({
+      withPositionLock: async (
+        _positionId: string,
+        _semesterId: string,
+        run: Parameters<ProjectsStore["withPositionLock"]>[2]
+      ) =>
+        run({
+          position: {
+            id: developerId,
+            name: "Developer",
+            category: "project",
+            grantsExec: false,
+            seatLimit: null,
+            perProject: false,
+            isArchived: false,
+          },
+          existingAssignments: [],
+          projectById: async () => ({ semesterId, status: "active" }),
+          insertAssignment: async () => {
+            throw new DrizzleQueryError("insert into member_positions", [], violation);
+          },
+          recordAudit: async () => {},
+        }),
+    } as unknown as ProjectsStore);
+
+    const result = service.assignPosition(
+      memberId,
+      { positionId: developerId, semesterId, projectId },
+      { isSuperuser: true }
+    );
+    await expect(result).rejects.toMatchObject({ status: 409, code: "ALREADY_ON_PROJECT" });
+  });
+
+  it("records an audit entry for each assignment and removal", async () => {
+    const { app, audits } = setup();
+    const response = await app.request(`/api/v1/members/${memberId}/positions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ positionId: developerId, semesterId, projectId }),
+    });
+    const created = memberPositionSchema.parse(await response.json());
+    const assignedFields = {
+      memberId: { old: null, new: memberId },
+      positionId: { old: null, new: developerId },
+      semesterId: { old: null, new: semesterId },
+      projectId: { old: null, new: projectId },
+    };
+    expect(audits).toEqual([
+      {
+        action: "position.assign",
+        targetType: "member_position",
+        targetId: created.id,
+        changes: assignedFields,
+      },
+    ]);
+
+    await app.request(`/api/v1/member-positions/${created.id}`, { method: "DELETE" });
+    expect(audits[1]).toEqual({
+      action: "position.remove",
+      targetType: "member_position",
+      targetId: created.id,
+      changes: Object.fromEntries(
+        Object.entries(assignedFields).map(([field, change]) => [
+          field,
+          { old: change.new, new: null },
+        ])
+      ),
+    });
+  });
+
+  it("records nothing when an assignment is rejected", async () => {
+    const { app, audits } = setup({ isSuperuser: false });
+    const response = await app.request(`/api/v1/members/${memberId}/positions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ positionId: execPositionId, semesterId }),
+    });
+    expect(response.status).toBe(403);
+    expect(audits).toHaveLength(0);
+  });
+
   it("returns 404 when an assignment to remove does not exist", async () => {
     const { app } = setup();
     const response = await app.request(`/api/v1/member-positions/${assignmentId}`, {
@@ -525,6 +627,93 @@ describe.skipIf(!env.DATABASE_URL)("position assignment transaction", () => {
       await db.delete(projects).where(eq(projects.id, raceProjectId));
       await db.delete(members).where(inArray(members.id, [firstMemberId, secondMemberId]));
       await db.delete(positions).where(eq(positions.id, racePositionId));
+      await db.delete(semesters).where(eq(semesters.id, raceSemesterId));
+    }
+  });
+
+  it("keeps a member on one project when two project assignments race", async () => {
+    const { db } = await import("../src/db");
+    const { auditLog, memberPositions, members, positions, projects, semesters } =
+      await import("../src/db/schema");
+
+    const marker = crypto.randomUUID();
+    const raceSemesterId = crypto.randomUUID();
+    const projectIds = [crypto.randomUUID(), crypto.randomUUID()];
+    const positionIds = [crypto.randomUUID(), crypto.randomUUID()];
+    const raceMemberId = crypto.randomUUID();
+
+    try {
+      await db.insert(semesters).values({
+        id: raceSemesterId,
+        name: `Project race ${marker}`,
+        term: "spring",
+        year: 2997,
+        startsOn: "2997-01-10",
+        endsOn: "2997-05-05",
+      });
+      await db.insert(projects).values(
+        projectIds.map((id, i) => ({
+          id,
+          semesterId: raceSemesterId,
+          name: `Project race ${i}`,
+          slug: `project-race-${i}-${marker}`,
+        }))
+      );
+      await db.insert(members).values({
+        id: raceMemberId,
+        firstName: "Test",
+        lastName: "Racer",
+        email: `${marker}@example.test`,
+      });
+      // Two different positions, so the two requests take different position locks.
+      await db.insert(positions).values(
+        positionIds.map((id, i) => ({
+          id,
+          name: `Race Role ${i} ${marker}`,
+          category: "project" as const,
+          grantsExec: false,
+          seatLimit: null,
+        }))
+      );
+
+      const service = createProjectsService();
+      const outcomes = await Promise.allSettled(
+        [0, 1].map((i) =>
+          service.assignPosition(
+            raceMemberId,
+            {
+              positionId: positionIds[i]!,
+              semesterId: raceSemesterId,
+              projectId: projectIds[i]!,
+            },
+            { isSuperuser: false }
+          )
+        )
+      );
+
+      expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+      const rejected = outcomes.find((outcome) => outcome.status === "rejected");
+      if (rejected?.status === "rejected") {
+        expect(rejected.reason).toBeInstanceOf(ApiError);
+        expect(rejected.reason.status).toBe(409);
+        expect(rejected.reason.code).toBe("ALREADY_ON_PROJECT");
+      }
+      const stored = await db
+        .select({ id: memberPositions.id })
+        .from(memberPositions)
+        .where(eq(memberPositions.memberId, raceMemberId));
+      expect(stored).toHaveLength(1);
+      // The losing request's audit entry rolled back with its insert.
+      const entries = await db
+        .select({ action: auditLog.action })
+        .from(auditLog)
+        .where(eq(auditLog.targetId, stored[0]!.id));
+      expect(entries).toEqual([{ action: "position.assign" }]);
+    } finally {
+      await db.delete(memberPositions).where(eq(memberPositions.semesterId, raceSemesterId));
+      await db.delete(projects).where(inArray(projects.id, projectIds));
+      await db.delete(members).where(eq(members.id, raceMemberId));
+      await db.delete(positions).where(inArray(positions.id, positionIds));
       await db.delete(semesters).where(eq(semesters.id, raceSemesterId));
     }
   });
