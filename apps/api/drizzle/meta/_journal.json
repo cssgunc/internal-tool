@@ -57,6 +57,13 @@
       "when": 1795022950174,
       "tag": "0007_woozy_jasper_sitwell",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795023970622,
+      "tag": "0008_curious_madame_web",
+      "breakpoints": true
     }
   ]
 }

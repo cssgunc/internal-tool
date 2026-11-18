@@ -1,5 +1,6 @@
 import { db } from "./index";
 import { positions } from "./schema/positions";
+import { seedEmailTemplates } from "./seed-email-templates";
 
 const positionSeeds = [
   { name: "Co-President", category: "exec", grantsExec: true, seatLimit: 2 },
@@ -35,6 +36,7 @@ const positionSeeds = [
 
 try {
   await db.insert(positions).values(positionSeeds).onConflictDoNothing({ target: positions.name });
+  await seedEmailTemplates(db);
 } finally {
   await db.$client.end();
 }

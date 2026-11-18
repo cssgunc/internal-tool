@@ -8,3 +8,4 @@ export * from "./projects";
 export * from "./member-positions";
 export * from "./recruiting";
 export * from "./audit";
+export * from "./email-templates";

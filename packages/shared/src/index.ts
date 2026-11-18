@@ -14,3 +14,4 @@ export * from "./me";
 export * from "./members";
 export * from "./projects";
 export * from "./semesters";
+export * from "./email-templates";

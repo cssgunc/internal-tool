@@ -9,6 +9,7 @@ import type { AppEnv } from "./lib/session";
 import { auditLogRoutes } from "./routes/audit-log";
 import { authRoutes } from "./routes/auth";
 import { health } from "./routes/health";
+import { emailTemplateRoutes } from "./routes/email-templates";
 import { me } from "./routes/me";
 import { members } from "./routes/members";
 import { semesters } from "./routes/semesters";
@@ -57,7 +58,8 @@ export function createApp({
     .route("/interest-meetings", createInterestMeetingRoutes(meetingService))
     .route("/public/checkin", createPublicCheckinRoutes(meetingService))
     .route("/public/interest", createPublicInterestRoutes(interestService, interestLimiter))
-    .route("/audit-log", auditLogRoutes);
+    .route("/audit-log", auditLogRoutes)
+    .route("/email-templates", emailTemplateRoutes);
 }
 
 export const app = createApp();

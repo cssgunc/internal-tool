@@ -13,3 +13,15 @@ export type DevSubrole = (typeof DEV_SUBROLES)[number];
 
 export const INTEREST_KINDS = ["project", "education", "exec"] as const;
 export type InterestKind = (typeof INTEREST_KINDS)[number];
+
+export const EMAIL_KINDS = [
+  "invite",
+  "password_reset",
+  "applications_open",
+  "closing_reminder",
+  "exec_rejection",
+  "returner_congrats",
+  "education_congrats",
+  "rejection",
+] as const;
+export type EmailKind = (typeof EMAIL_KINDS)[number];
