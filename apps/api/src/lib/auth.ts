@@ -16,7 +16,13 @@ function createAuth(db: typeof Database) {
       provider: "pg",
       schema: { user, session, account, verification },
     }),
-    emailAndPassword: { enabled: true, disableSignUp: true },
+    emailAndPassword: {
+      enabled: true,
+      disableSignUp: true,
+      sendResetPassword: async () => {
+        // TODO(email service)
+      },
+    },
     // Rejects requests sent from other websites. It's on by default, but Better Auth
     // turns it off under NODE_ENV=test; setting it keeps tests as strict as production.
     advanced: { disableOriginCheck: false },
