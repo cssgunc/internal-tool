@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 
+// Console outside production, Resend in production, unless EMAIL_PROVIDER says otherwise.
+const defaultEmailProvider = (nodeEnv: string) => (nodeEnv === "production" ? "resend" : "console");
+
 // Every environment variable the API reads goes through here, so a missing or
 // malformed value fails loudly at startup instead of halfway through a request.
 export const envSchema = z
@@ -19,8 +22,23 @@ export const envSchema = z
     BETTER_AUTH_SECRET: z.string().min(32).optional(),
     // The origin browsers use, i.e. the web app, since Next.js forwards /api/* (TDD 3).
     BETTER_AUTH_URL: z.url().optional(),
+    // "console" logs emails instead of sending them; "resend" sends over its HTTPS API (TDD 3 Email).
+    EMAIL_PROVIDER: z.enum(["console", "resend"]).optional(),
+    RESEND_API_KEY: z.string().trim().min(1).optional(),
+    // Resend's test sender until cssgunc.org has its DNS records.
+    EMAIL_FROM: z.string().trim().min(1).default("onboarding@resend.dev"),
   })
   .superRefine((env, ctx) => {
+    // Checked in every environment, so a local run with EMAIL_PROVIDER=resend fails too.
+    const emailProvider = env.EMAIL_PROVIDER ?? defaultEmailProvider(env.NODE_ENV);
+    if (emailProvider === "resend" && !env.RESEND_API_KEY) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["RESEND_API_KEY"],
+        message: "Required when EMAIL_PROVIDER is resend.",
+      });
+    }
+
     if (env.NODE_ENV !== "production") return;
     if (!env.TURNSTILE_SECRET_KEY || /^[123]x0+(AA|AB|BB|FF)$/.test(env.TURNSTILE_SECRET_KEY)) {
       ctx.addIssue({
@@ -43,6 +61,7 @@ export const envSchema = z
     // Locally that just means signing in again after the API restarts.
     BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET ?? randomBytes(32).toString("base64"),
     BETTER_AUTH_URL: env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    EMAIL_PROVIDER: env.EMAIL_PROVIDER ?? defaultEmailProvider(env.NODE_ENV),
   }));
 
 export const env = envSchema.parse(process.env);

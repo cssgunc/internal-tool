@@ -5,6 +5,7 @@ export * from "./errors";
 export * from "./access";
 export * from "./audit";
 export * from "./forms/definition";
+export * from "./forms/definitions";
 export * from "./forms/honeypot";
 export * from "./forms/validator";
 export * from "./interest";
