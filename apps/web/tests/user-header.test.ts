@@ -191,5 +191,170 @@ describe("UserHeader component", () => {
       expect(options?.method).toBe("POST");
       expect(options?.credentials).toBe("same-origin");
     });
+
+    it("handles HTTP 500 failure during sign-out, preserves user state, and displays retryable error", async () => {
+      currentPathname = "/";
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: "user-1", email: "jane@example.com", name: "Jane Doe" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      render(React.createElement(UserHeader));
+
+      const signOutButton = await screen.findByRole("button", { name: /sign out/i });
+      expect(screen.getByText("Jane Doe")).toBeTruthy();
+
+      // Sign-out returns HTTP 500
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Internal Server Error" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      fireEvent.click(signOutButton);
+
+      await waitFor(() => {
+        const alert = screen.getByRole("alert");
+        expect(alert.textContent).toContain("Failed to sign out. Please try again.");
+      });
+
+      // User state must be preserved
+      expect(screen.getByText("Jane Doe")).toBeTruthy();
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(mockRefresh).not.toHaveBeenCalled();
+
+      // Sign-out button must be re-enabled for retry
+      const btn = screen.getByRole("button", { name: /sign out/i }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+    });
+
+    it("handles HTTP 400 failure during sign-out, preserves user state, and displays retryable error", async () => {
+      currentPathname = "/";
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: "user-1", email: "jane@example.com", name: "Jane Doe" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      render(React.createElement(UserHeader));
+
+      const signOutButton = await screen.findByRole("button", { name: /sign out/i });
+
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Bad Request" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      fireEvent.click(signOutButton);
+
+      await waitFor(() => {
+        const alert = screen.getByRole("alert");
+        expect(alert.textContent).toContain("Failed to sign out. Please try again.");
+      });
+
+      expect(screen.getByText("Jane Doe")).toBeTruthy();
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("handles network failure during sign-out, preserves user state, and displays retryable error", async () => {
+      currentPathname = "/";
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: "user-1", email: "jane@example.com", name: "Jane Doe" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      render(React.createElement(UserHeader));
+
+      const signOutButton = await screen.findByRole("button", { name: /sign out/i });
+
+      fetchSpy.mockRejectedValueOnce(new TypeError("Network error"));
+
+      fireEvent.click(signOutButton);
+
+      await waitFor(() => {
+        const alert = screen.getByRole("alert");
+        expect(alert.textContent).toContain("Network error during sign out. Please try again.");
+      });
+
+      expect(screen.getByText("Jane Doe")).toBeTruthy();
+      expect(mockPush).not.toHaveBeenCalled();
+      const btn = screen.getByRole("button", { name: /sign out/i }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+    });
+
+    it("allows retrying sign-out after failure and successfully signs out", async () => {
+      currentPathname = "/";
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: "user-1", email: "jane@example.com", name: "Jane Doe" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      render(React.createElement(UserHeader));
+
+      const signOutButton = await screen.findByRole("button", { name: /sign out/i });
+
+      // First sign-out attempt fails with 500
+      fetchSpy.mockResolvedValueOnce(new Response("Server Error", { status: 500 }));
+      fireEvent.click(signOutButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeTruthy();
+      });
+
+      // Second sign-out attempt succeeds with 200
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      fireEvent.click(signOutButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText("Jane Doe")).toBeNull();
+        expect(mockPush).toHaveBeenCalledWith("/sign-in");
+        expect(mockRefresh).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("prevents duplicate sign-out requests while in flight", async () => {
+      currentPathname = "/";
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: "user-1", email: "jane@example.com", name: "Jane Doe" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      render(React.createElement(UserHeader));
+
+      const signOutButton = await screen.findByRole("button", { name: /sign out/i });
+
+      let resolveSignOut: (value: Response) => void;
+      fetchSpy.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSignOut = resolve;
+        })
+      );
+
+      // Click once
+      fireEvent.click(signOutButton);
+      expect(signOutButton.textContent).toBe("Signing out...");
+
+      // Click again while in-flight
+      fireEvent.click(signOutButton);
+      expect(fetchSpy).toHaveBeenCalledTimes(2); // 1 for me, 1 for sign-out
+
+      resolveSignOut!(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith("/sign-in");
+      });
+    });
   });
 });

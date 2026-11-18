@@ -21,6 +21,7 @@ export function UserHeader() {
     isPublic ? { status: "idle" } : { status: "loading" }
   );
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
 
   useEffect(() => {
@@ -69,10 +70,15 @@ export function UserHeader() {
   }, [pathname, router, retryTrigger]);
 
   const handleSignOut = async () => {
+    if (isSigningOut) {
+      return;
+    }
+
     setIsSigningOut(true);
+    setSignOutError(null);
 
     try {
-      await fetch("/api/auth/sign-out", {
+      const res = await fetch("/api/auth/sign-out", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -80,12 +86,20 @@ export function UserHeader() {
         credentials: "same-origin",
       });
 
+      if (!res.ok) {
+        setIsSigningOut(false);
+        setSignOutError("Failed to sign out. Please try again.");
+        return;
+      }
+
+      setSignOutError(null);
       // Clear user state immediately to avoid displaying stale user information
       setState({ status: "idle" });
       router.push("/sign-in");
       router.refresh();
     } catch {
       setIsSigningOut(false);
+      setSignOutError("Network error during sign out. Please try again.");
     }
   };
 
@@ -117,6 +131,11 @@ export function UserHeader() {
 
           {state.status === "authenticated" && (
             <div className="flex items-center gap-3">
+              {signOutError && (
+                <div role="alert" className="flex items-center gap-2">
+                  <span className="text-xs text-red-600">{signOutError}</span>
+                </div>
+              )}
               <span className="text-sm font-medium text-neutral-800">{state.user.name}</span>
               <button
                 type="button"
