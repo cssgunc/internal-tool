@@ -172,4 +172,49 @@ describe("auth:create-user script", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr.toString()).toContain("Refusing to run");
   });
+
+  it.skipIf(!env.DATABASE_URL)("creates a superuser member linked to the login", async () => {
+    const { db } = await import("../src/db");
+    const { members } = await import("../src/db/schema");
+    const email = `create-user-${crypto.randomUUID()}@example.com`;
+    try {
+      const result = Bun.spawnSync(
+        [
+          "bun",
+          "src/scripts/create-user.ts",
+          "--email",
+          email,
+          "--password",
+          "longenough",
+          "--name",
+          "Ada Lovelace King",
+          "--superuser",
+        ],
+        { cwd: `${import.meta.dir}/..`, env: process.env }
+      );
+      expect(result.exitCode).toBe(0);
+
+      const [login] = await db.select({ id: user.id }).from(user).where(eq(user.email, email));
+      const [member] = await db
+        .select({
+          userId: members.userId,
+          firstName: members.firstName,
+          lastName: members.lastName,
+          isSuperuser: members.isSuperuser,
+          status: members.status,
+        })
+        .from(members)
+        .where(eq(members.email, email));
+      expect(member).toEqual({
+        userId: login!.id,
+        firstName: "Ada",
+        lastName: "Lovelace King",
+        isSuperuser: true,
+        status: "active",
+      });
+    } finally {
+      await db.delete(members).where(eq(members.email, email));
+      await db.delete(user).where(eq(user.email, email));
+    }
+  });
 });
