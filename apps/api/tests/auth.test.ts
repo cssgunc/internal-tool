@@ -13,14 +13,22 @@ import { createPasswordUser } from "../src/services/users";
 const email = `auth-test-${crypto.randomUUID()}@example.com`;
 const password = "correct horse battery staple";
 const name = "Auth Test";
+const initialClientIpSource = env.CLIENT_IP_SOURCE;
+let ipCounter = 1;
 
 // Browsers send the web app's origin, and Better Auth rejects untrusted ones.
-const headers = { "content-type": "application/json", origin: env.BETTER_AUTH_URL };
+function authHeaders() {
+  return {
+    "content-type": "application/json",
+    origin: env.BETTER_AUTH_URL,
+    "X-Real-IP": `203.0.113.${ipCounter++}`,
+  };
+}
 
 function signIn(body: { email: string; password: string }) {
   return app.request("/api/auth/sign-in/email", {
     method: "POST",
-    headers,
+    headers: authHeaders(),
     body: JSON.stringify(body),
   });
 }
@@ -35,6 +43,7 @@ function cookieFrom(res: Response) {
 
 describe("auth", () => {
   beforeAll(async () => {
+    env.CLIENT_IP_SOURCE = "railway";
     if (!env.DATABASE_URL) {
       throw new Error(
         "The auth tests need a database: set DATABASE_URL (CI and the devcontainer do)."
@@ -46,6 +55,7 @@ describe("auth", () => {
   afterAll(async () => {
     const { db } = await import("../src/db");
     await db.delete(user).where(eq(user.email, email));
+    env.CLIENT_IP_SOURCE = initialClientIpSource;
   });
 
   it("signs in with the right password and sets a session cookie", async () => {
@@ -68,7 +78,7 @@ describe("auth", () => {
   it("rejects a sign-in sent from another website", async () => {
     const res = await app.request("/api/auth/sign-in/email", {
       method: "POST",
-      headers: { ...headers, origin: "https://evil.example" },
+      headers: { ...authHeaders(), origin: "https://evil.example" },
       body: JSON.stringify({ email, password }),
     });
 
@@ -82,13 +92,23 @@ describe("auth", () => {
 
     const res = await app.request("/api/auth/sign-up/email", {
       method: "POST",
-      headers,
+      headers: authHeaders(),
       body: JSON.stringify({ email: newEmail, password, name: "Nobody" }),
     });
 
     expect(res.status).toBe(400);
     expect(((await res.json()) as { code: string }).code).toBe("EMAIL_PASSWORD_SIGN_UP_DISABLED");
     expect((await signIn({ email: newEmail, password })).status).toBe(401);
+  });
+
+  it("returns success when requesting a password reset for an unknown email", async () => {
+    const res = await app.request("/api/auth/request-password-reset", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ email: `unknown-${crypto.randomUUID()}@example.com` }),
+    });
+
+    expect(res.status).toBe(200);
   });
 
   it("GET /me returns the signed-in user", async () => {
@@ -122,7 +142,7 @@ describe("auth", () => {
     const cookie = cookieFrom(await signIn({ email, password }));
     const signOut = await app.request("/api/auth/sign-out", {
       method: "POST",
-      headers: { ...headers, cookie },
+      headers: { ...authHeaders(), cookie },
     });
     expect(signOut.status).toBe(200);
 
@@ -144,6 +164,7 @@ describe("auth:create-user script", () => {
           BETTER_AUTH_SECRET: "x".repeat(32),
           BETTER_AUTH_URL: "https://admin.example.org",
           TURNSTILE_SECRET_KEY: "fake-real-secret",
+          RESEND_API_KEY: "re_test_key",
         },
       }
     );

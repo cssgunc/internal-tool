@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import type { db as Database } from "../db";
 import { account, session, user, verification } from "../db/schema";
+import { sendPasswordResetEmail } from "../email/password-reset";
 import { env } from "../env";
 
 // Better Auth with email + password; sign-up is disabled because the tool is
@@ -16,7 +17,15 @@ function createAuth(db: typeof Database) {
       provider: "pg",
       schema: { user, session, account, verification },
     }),
-    emailAndPassword: { enabled: true, disableSignUp: true },
+    emailAndPassword: {
+      enabled: true,
+      disableSignUp: true,
+      // Not awaited, so the response time doesn't reveal whether the email exists.
+      // sendEmail never throws; a failed send is logged there.
+      sendResetPassword: async ({ user, url }) => {
+        void sendPasswordResetEmail({ user, url });
+      },
+    },
     // Rejects requests sent from other websites. It's on by default, but Better Auth
     // turns it off under NODE_ENV=test; setting it keeps tests as strict as production.
     advanced: { disableOriginCheck: false },

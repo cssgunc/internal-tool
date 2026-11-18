@@ -69,7 +69,7 @@ describe("validateAnswers", () => {
       interests: [],
     });
     expect(res.success).toBe(false);
-    expect(res.errors.interests).toBe("Interests is required.");
+    expect(res.errors.interests).toBe("Required.");
   });
 
   it("flags invalid email format", () => {
@@ -132,7 +132,7 @@ describe("validateAnswers", () => {
       interests: ["dev"],
     });
     expect(res.success).toBe(false);
-    expect(res.errors.project_experience).toBe("Experience is required.");
+    expect(res.errors.project_experience).toBe("Required.");
   });
 });
 
@@ -152,5 +152,82 @@ describe("filterVisibleAnswers", () => {
     expect(sanitized.track).toBe("education");
     expect(sanitized.teaching_interest).toBe("Visible education answer");
     expect(sanitized.project_experience).toBeUndefined();
+  });
+});
+
+describe("validateAnswers by field type", () => {
+  const form: FormDefinition = {
+    sections: [
+      {
+        id: "main",
+        title: "Main",
+        fields: [
+          { id: "name", type: "short_text", label: "Name", required: false, maxLength: 50 },
+          {
+            id: "year",
+            type: "number",
+            label: "Year",
+            required: false,
+            integer: true,
+            min: 2020,
+            max: 2040,
+          },
+          { id: "site", type: "url", label: "Site", required: false },
+          {
+            id: "picks",
+            type: "multi_select",
+            label: "Picks",
+            required: false,
+            options: ["a", "b", "c"],
+          },
+          { id: "agree", type: "checkbox", label: "Agree", required: false },
+          { id: "stars", type: "rating", label: "Stars", required: false },
+        ],
+      },
+      {
+        id: "about_b",
+        title: "About B",
+        showIf: { field: "picks", in: ["b"] },
+        fields: [{ id: "why_b", type: "long_text", label: "Why B", required: true }],
+      },
+    ],
+  };
+
+  it("accepts well-formed answers of every type", () => {
+    expect(
+      validateAnswers(form, {
+        name: "Jane",
+        year: 2029,
+        site: "https://janedoe.dev",
+        picks: ["a"],
+        agree: true,
+        stars: 4,
+      })
+    ).toEqual({ success: true, errors: {} });
+  });
+
+  it.each([
+    ["name", { name: { first: "Jane" } }, "Invalid answer."],
+    ["name", { name: 42 }, "Invalid answer."],
+    ["year", { year: "2029" }, "Please enter a number."],
+    ["year", { year: 2029.5 }, "Please enter a whole number."],
+    ["year", { year: 2019 }, "Must be at least 2020."],
+    ["year", { year: 2041 }, "Must be at most 2040."],
+    ["site", { site: "janedoe.dev" }, "Please enter a full link, starting with https://."],
+    ["site", { site: "javascript:alert(1)" }, "Please enter a full link, starting with https://."],
+    ["picks", { picks: "a" }, "Invalid answer."],
+    ["picks", { picks: ["a", "z"] }, "Please select only valid options."],
+    ["picks", { picks: ["a", "a"] }, "Please select each option only once."],
+    ["agree", { agree: "yes" }, "Invalid answer."],
+    ["stars", { stars: { evil: true } }, "Please enter a number."],
+  ])("rejects a bad %s answer", (field, answers, message) => {
+    expect(validateAnswers(form, answers).errors).toEqual({ [field]: message });
+  });
+
+  it("shows a section for a multi_select when any chosen value matches", () => {
+    expect(validateAnswers(form, { picks: ["a", "b"] }).errors).toEqual({
+      why_b: "Required.",
+    });
+    expect(validateAnswers(form, { picks: ["a", "c"] }).success).toBe(true);
   });
 });

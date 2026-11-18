@@ -5,6 +5,9 @@ export type AccessRole = (typeof ACCESS_ROLES)[number];
 export const POSITION_CATEGORIES = ["exec", "project", "education"] as const;
 export type PositionCategory = (typeof POSITION_CATEGORIES)[number];
 
+export const PROJECT_STATUSES = ["active", "archived"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
 export const DEV_SUBROLES = ["backend", "frontend", "fullstack"] as const;
 export type DevSubrole = (typeof DEV_SUBROLES)[number];
 
