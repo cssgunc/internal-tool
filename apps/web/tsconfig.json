@@ -27,5 +27,7 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  // Tests run under Bun and type check with tests/tsconfig.json, so Bun's globals
+  // (its Response, for one) stay out of the app's types.
+  "exclude": ["node_modules", "tests"]
 }
