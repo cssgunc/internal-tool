@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
+import QRCode from "qrcode";
 import type {
   CreateInterestMeetingRequest,
   CreateInterestMeetingResponse,
@@ -88,6 +89,13 @@ export function createInterestMeetingService(
         const meeting = { semesterId, title: request.title, startsAt: new Date(request.startsAt) };
         // 32 random bytes give the public link a 256-bit token, encoded as URL-safe hex.
         const checkinToken = randomBytes(32).toString("hex");
+        const checkinUrl = new URL(`/checkin/${checkinToken}`, webUrl).toString();
+        // Built before the insert, so a QR failure saves nothing.
+        const qrSvg = await QRCode.toString(checkinUrl, {
+          type: "svg",
+          errorCorrectionLevel: "M",
+          margin: 2,
+        });
         const { id } = await store.insertMeeting({ ...meeting, checkinToken });
         await store.recordAudit({
           actor,
@@ -97,7 +105,7 @@ export function createInterestMeetingService(
           // The check-in token stays out: it's the secret in the public link.
           changes: diffChanges(null, meeting),
         });
-        return { id, checkinUrl: new URL(`/checkin/${checkinToken}`, webUrl).toString() };
+        return { id, checkinUrl, qrSvg };
       });
     },
 

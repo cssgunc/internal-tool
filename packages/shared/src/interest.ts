@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { INTEREST_KINDS } from "./enums";
+import { honeypot } from "./forms/honeypot";
 
 export const interestKindSchema = z.enum(INTEREST_KINDS);
 
@@ -11,6 +12,7 @@ export const createInterestMeetingRequestSchema = z.object({
 export const createInterestMeetingResponseSchema = z.object({
   id: z.uuid(),
   checkinUrl: z.url(),
+  qrSvg: z.string(),
 });
 
 // Public lookup deliberately excludes the token, start time, and attendance data.
@@ -29,8 +31,7 @@ export const submitInterestRequestSchema = z.object({
     .pipe(z.email())
     .transform((email) => email.toLowerCase()),
   interests: z.array(interestKindSchema).min(1).max(INTEREST_KINDS.length),
-  website: z.string().max(2048).default(""),
-  // Verification belongs to the separate Public-route protection ticket.
+  website: honeypot,
   turnstileToken: z.string().max(2048).optional(),
 });
 

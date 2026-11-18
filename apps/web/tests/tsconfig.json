@@ -1,0 +1,11 @@
+// The web tests run under Bun, so they get Bun's types on top of the app's.
+// Kept separate from ../tsconfig.json so app code only sees browser and Node types.
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "bun"],
+    "plugins": []
+  },
+  "include": ["../next-env.d.ts", "../src/**/*.ts", "../src/**/*.tsx", "./**/*.ts", "./**/*.tsx"],
+  "exclude": []
+}

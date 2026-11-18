@@ -43,7 +43,7 @@ describe("interest schemas", () => {
   });
 
   it("accepts tokenless submissions without requiring Turnstile yet", () => {
-    expect(submitInterestRequestSchema.parse(submission)).toEqual({ ...submission, website: "" });
+    expect(submitInterestRequestSchema.parse(submission)).toEqual(submission);
   });
 
   it("normalizes names and email and accepts a meeting token", () => {
@@ -88,6 +88,7 @@ describe("interest schemas", () => {
     const meeting = {
       id: "00000000-0000-4000-8000-000000000001",
       checkinUrl: "https://example.com/checkin/token",
+      qrSvg: "<svg></svg>",
     };
     expect(createInterestMeetingResponseSchema.parse(meeting)).toEqual(meeting);
     expect(
