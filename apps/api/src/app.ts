@@ -6,9 +6,11 @@ import { handleError, handleNotFound } from "./lib/errors";
 import type { ApiErrorStatus } from "./lib/errors";
 import { sessionMiddleware } from "./lib/session";
 import type { AppEnv } from "./lib/session";
+import { auditLogRoutes } from "./routes/audit-log";
 import { authRoutes } from "./routes/auth";
 import { health } from "./routes/health";
 import { me } from "./routes/me";
+import { members } from "./routes/members";
 import { semesters } from "./routes/semesters";
 import { createInterestMeetingRoutes, createPublicCheckinRoutes } from "./routes/interest-meetings";
 import { createInterestMeetingService } from "./services/interest-meetings";
@@ -16,6 +18,11 @@ import type { InterestMeetingService } from "./services/interest-meetings";
 import { createPublicInterestRoutes } from "./routes/public-interest";
 import { createInterestService } from "./services/interest";
 import type { InterestService } from "./services/interest";
+import { createProjectsService } from "./services/projects";
+import type { ProjectsService } from "./services/projects";
+import { createProjectRoutes } from "./routes/projects";
+import { createMemberPositionRoutes } from "./routes/member-positions";
+import type { AssignmentCaller } from "./routes/member-positions";
 
 // All API routes live under /api/v1 (TDD 3.2). Better Auth mounts its own routes
 // under /api/auth. Every /api/v1 route gets the signed-in user (or null) from
@@ -25,10 +32,14 @@ import type { InterestService } from "./services/interest";
 export function createApp({
   meetingService = createInterestMeetingService(),
   interestService = createInterestService(),
+  projectsService = createProjectsService(),
+  assignmentCaller = () => ({ isSuperuser: false }),
   interestLimiter,
 }: {
   meetingService?: InterestMeetingService;
   interestService?: InterestService;
+  projectsService?: ProjectsService;
+  assignmentCaller?: () => AssignmentCaller;
   interestLimiter?: MiddlewareHandler;
 } = {}) {
   return new Hono<AppEnv>()
@@ -40,9 +51,13 @@ export function createApp({
     .route("/health", health)
     .route("/semesters", semesters)
     .route("/me", me)
+    .route("/members", members)
+    .route("/projects", createProjectRoutes(projectsService))
+    .route("/", createMemberPositionRoutes(projectsService, assignmentCaller))
     .route("/interest-meetings", createInterestMeetingRoutes(meetingService))
     .route("/public/checkin", createPublicCheckinRoutes(meetingService))
-    .route("/public/interest", createPublicInterestRoutes(interestService, interestLimiter));
+    .route("/public/interest", createPublicInterestRoutes(interestService, interestLimiter))
+    .route("/audit-log", auditLogRoutes);
 }
 
 export const app = createApp();

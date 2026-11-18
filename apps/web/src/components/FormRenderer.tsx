@@ -15,14 +15,27 @@ interface FormRendererProps {
   onSubmitSuccess?: (answers: Record<string, unknown>) => void;
 }
 
-const SUPPORTED_TYPES = new Set(["short_text", "long_text", "email", "select"]);
+const SUPPORTED_TYPES = new Set([
+  "short_text",
+  "long_text",
+  "email",
+  "url",
+  "number",
+  "select",
+  "multi_select",
+]);
+
+// What applicants see for an option; the stored value can be a database enum value.
+function optionLabel(field: FormField, option: string) {
+  return field.optionLabels?.[option] ?? option;
+}
 
 export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps) {
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [submittedPayload, setSubmittedPayload] = useState<Record<string, unknown> | null>(null);
 
-  const handleFieldChange = (fieldId: string, value: string) => {
+  const handleFieldChange = (fieldId: string, value: unknown) => {
     setAnswers((prev) => ({ ...prev, [fieldId]: value }));
 
     if (errors[fieldId]) {
@@ -60,7 +73,8 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
       );
     }
 
-    const value = (answers[field.id] as string) ?? "";
+    const answer = answers[field.id];
+    const value = typeof answer === "string" || typeof answer === "number" ? String(answer) : "";
     const hasError = Boolean(errors[field.id]);
     const errorId = `${field.id}-error`;
     const baseClasses =
@@ -79,13 +93,32 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
       className: `${baseClasses} ${statusClasses}`,
     };
 
-    if (field.type === "short_text" || field.type === "email") {
+    if (field.type === "short_text" || field.type === "email" || field.type === "url") {
       return (
         <input
           {...commonProps}
-          type={field.type === "email" ? "email" : "text"}
+          type={field.type === "short_text" ? "text" : field.type}
+          maxLength={field.maxLength}
           value={value}
           onChange={(e) => handleFieldChange(field.id, e.target.value)}
+        />
+      );
+    }
+
+    if (field.type === "number") {
+      return (
+        <input
+          {...commonProps}
+          type="number"
+          inputMode="numeric"
+          min={field.min}
+          max={field.max}
+          step={field.integer ? 1 : "any"}
+          value={value}
+          // Stored as a number, or left unanswered when the box is empty.
+          onChange={(e) =>
+            handleFieldChange(field.id, e.target.value === "" ? undefined : Number(e.target.value))
+          }
         />
       );
     }
@@ -95,9 +128,43 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
         <textarea
           {...commonProps}
           rows={4}
+          maxLength={field.maxLength}
           value={value}
           onChange={(e) => handleFieldChange(field.id, e.target.value)}
         />
+      );
+    }
+
+    if (field.type === "multi_select") {
+      const selected = Array.isArray(answer) ? (answer as string[]) : [];
+      return (
+        <div
+          role="group"
+          aria-labelledby={`${field.id}-label`}
+          aria-describedby={hasError ? errorId : undefined}
+          className="mt-2 space-y-2"
+        >
+          {field.options?.map((option) => (
+            <label key={option} className="flex items-center gap-2 text-sm text-gray-800">
+              <input
+                type="checkbox"
+                name={field.id}
+                value={option}
+                checked={selected.includes(option)}
+                onChange={(e) =>
+                  handleFieldChange(
+                    field.id,
+                    e.target.checked
+                      ? [...selected, option]
+                      : selected.filter((item) => item !== option)
+                  )
+                }
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              {optionLabel(field, option)}
+            </label>
+          ))}
+        </div>
       );
     }
 
@@ -111,7 +178,7 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
           <option value="">Select an option</option>
           {field.options?.map((option) => (
             <option key={option} value={option}>
-              {option}
+              {optionLabel(field, option)}
             </option>
           ))}
         </select>
@@ -137,16 +204,28 @@ export function FormRenderer({ definition, onSubmitSuccess }: FormRendererProps)
             <div className="mt-4 space-y-4">
               {section.fields.map((field) => {
                 const errorId = `${field.id}-error`;
+                const required = field.required && (
+                  <span className="ml-1 text-red-500" aria-hidden="true">
+                    *
+                  </span>
+                );
                 return (
                   <div key={field.id}>
-                    <label htmlFor={field.id} className="block text-sm font-medium text-gray-700">
-                      {field.label}
-                      {field.required && (
-                        <span className="ml-1 text-red-500" aria-hidden="true">
-                          *
-                        </span>
-                      )}
-                    </label>
+                    {field.type === "multi_select" ? (
+                      // A group of checkboxes has no single input for a <label> to point at.
+                      <p
+                        id={`${field.id}-label`}
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        {field.label}
+                        {required}
+                      </p>
+                    ) : (
+                      <label htmlFor={field.id} className="block text-sm font-medium text-gray-700">
+                        {field.label}
+                        {required}
+                      </label>
+                    )}
                     {renderFieldInput(field)}
                     {errors[field.id] && (
                       <p id={errorId} className="mt-1 text-xs text-red-600" role="alert">
