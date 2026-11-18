@@ -12,8 +12,57 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1793206775041,
-      "tag": "0001_short_wild_child",
+      "when": 1792688247453,
+      "tag": "0001_unique_jack_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793630160551,
+      "tag": "0002_spotty_corsair",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793630376939,
+      "tag": "0003_cultured_turbo",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793630559327,
+      "tag": "0004_tiny_jetstream",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794374410060,
+      "tag": "0005_premium_molly_hayes",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795022721610,
+      "tag": "0006_brown_sersi",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795022950174,
+      "tag": "0007_woozy_jasper_sitwell",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795023970622,
+      "tag": "0008_curious_madame_web",
       "breakpoints": true
     }
   ]

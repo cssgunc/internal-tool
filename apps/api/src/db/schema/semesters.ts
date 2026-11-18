@@ -1,3 +1,4 @@
+import { SEMESTER_TERMS } from "@internal-tool/shared";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -13,7 +14,8 @@ import {
 
 // Example table to show the conventions. Matches `semesters` in TDD 3.1,
 // minus the recruiting columns, which come with the recruiting tickets.
-export const semesterTerm = pgEnum("semester_term", ["fall", "spring"]);
+// Values come from packages/shared so the API's schema and the database can't drift apart.
+export const semesterTerm = pgEnum("semester_term", SEMESTER_TERMS);
 
 export const semesters = pgTable(
   "semesters",

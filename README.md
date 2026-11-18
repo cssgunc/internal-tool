@@ -48,6 +48,18 @@ cp apps/api/.env.example apps/api/.env   # point DATABASE_URL at your Postgres
 bun run dev
 ```
 
+### Signing in locally
+
+Public sign-up is disabled (the tool is invite-only), so create a user to sign in with:
+
+```bash
+bun run auth:create-user --email you@example.com --password "at least 8 characters" --name "Your Name"
+```
+
+Then sign in with `POST /api/auth/sign-in/email`. The script refuses to run when `NODE_ENV=production`.
+
+A login alone has no member access. Add `--member` to also create an active member linked to it, or `--superuser` for a superuser member (needed for superuser pages such as `/semesters`). If a member with that email already exists, it's linked instead.
+
 ## Commands
 
 Run from the repo root.
@@ -65,6 +77,7 @@ Run from the repo root.
 | `bun run db:generate`   | Generate a migration from schema changes |
 | `bun run db:migrate`    | Apply migrations to the database         |
 | `bun run db:studio`     | Browse the database in Drizzle Studio    |
+| `bun run db:seed`       | Insert the default position records      |
 
 ## Repo layout
 

@@ -1,16 +1,11 @@
+import { EMAIL_KINDS } from "@internal-tool/shared";
 import { pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { members } from "./members";
 
-export const emailKindEnum = pgEnum("email_kind", [
-  "invite",
-  "password_reset",
-  "applications_open",
-  "closing_reminder",
-  "exec_rejection",
-  "returner_congrats",
-  "education_congrats",
-  "rejection",
-]);
+// Built from the shared list, so the database enum and the API can't drift apart.
+export const emailKindEnum = pgEnum("email_kind", EMAIL_KINDS);
 
+// One editable template per email kind (TDD 2.3, TDD 3.1 Recruiting).
 export const emailTemplates = pgTable("email_templates", {
   kind: emailKindEnum("kind").primaryKey(),
 
@@ -18,8 +13,9 @@ export const emailTemplates = pgTable("email_templates", {
 
   body: text("body").notNull(),
 
-  // TODO(auth): Add foreign key to members once the members table exists.
-  updatedBy: uuid("updated_by"),
+  // NULL until someone edits it (the seed writes the defaults). TODO(auth): set from
+  // the session once sessions are linked to members.
+  updatedBy: uuid("updated_by").references(() => members.id, { onDelete: "set null" }),
 
   createdAt: timestamp("created_at", {
     withTimezone: true,

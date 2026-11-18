@@ -1,5 +1,5 @@
 {
-  "id": "0e015ed1-abe3-48d6-b582-9ea895bf521d",
+  "id": "c3b470d6-03da-46db-bb65-e9643a3cdf6d",
   "prevId": "4cfe33e3-9077-44b3-88b6-d9f02561748c",
   "version": "7",
   "dialect": "postgresql",
@@ -94,34 +94,62 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.email_templates": {
-      "name": "email_templates",
+    "public.positions": {
+      "name": "positions",
       "schema": "",
       "columns": {
-        "kind": {
-          "name": "kind",
-          "type": "email_kind",
-          "typeSchema": "public",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "subject": {
-          "name": "subject",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_by": {
-          "name": "updated_by",
+        "id": {
+          "name": "id",
           "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "position_category",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grants_exec": {
+          "name": "grants_exec",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seat_limit": {
+          "name": "seat_limit",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
+        },
+        "per_project": {
+          "name": "per_project",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "requires_account": {
+          "name": "requires_account",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "is_archived": {
+          "name": "is_archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -141,9 +169,22 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "positions_name_unique": {
+          "name": "positions_name_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "name"
+          ]
+        }
+      },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "positions_seat_limit_positive": {
+          "name": "positions_seat_limit_positive",
+          "value": "\"positions\".\"seat_limit\" IS NULL OR \"positions\".\"seat_limit\" > 0"
+        }
+      },
       "isRLSEnabled": false
     }
   },
@@ -156,18 +197,13 @@
         "spring"
       ]
     },
-    "public.email_kind": {
-      "name": "email_kind",
+    "public.position_category": {
+      "name": "position_category",
       "schema": "public",
       "values": [
-        "invite",
-        "password_reset",
-        "applications_open",
-        "closing_reminder",
-        "exec_rejection",
-        "returner_congrats",
-        "education_congrats",
-        "rejection"
+        "exec",
+        "project",
+        "education"
       ]
     }
   },

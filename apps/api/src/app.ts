@@ -1,21 +1,64 @@
 import { Hono } from "hono";
+import type { MiddlewareHandler } from "hono";
 import type { ApplyGlobalResponse } from "hono/client";
 import type { ErrorResponse } from "@internal-tool/shared";
 import { handleError, handleNotFound } from "./lib/errors";
 import type { ApiErrorStatus } from "./lib/errors";
+import { sessionMiddleware } from "./lib/session";
+import type { AppEnv } from "./lib/session";
+import { auditLogRoutes } from "./routes/audit-log";
+import { authRoutes } from "./routes/auth";
 import { health } from "./routes/health";
 import { emailTemplateRoutes } from "./routes/email-templates";
+import { me } from "./routes/me";
+import { members } from "./routes/members";
+import { semesters } from "./routes/semesters";
+import { createInterestMeetingRoutes, createPublicCheckinRoutes } from "./routes/interest-meetings";
+import { createInterestMeetingService } from "./services/interest-meetings";
+import type { InterestMeetingService } from "./services/interest-meetings";
+import { createPublicInterestRoutes } from "./routes/public-interest";
+import { createInterestService } from "./services/interest";
+import type { InterestService } from "./services/interest";
+import { createProjectsService } from "./services/projects";
+import type { ProjectsService } from "./services/projects";
+import { createProjectRoutes } from "./routes/projects";
+import { createMemberPositionRoutes } from "./routes/member-positions";
+import type { AssignmentCaller } from "./routes/member-positions";
 
-// All API routes live under /api/v1 (TDD 3.2). Better Auth will mount its own
-// routes under /api/auth when auth is added.
+// All API routes live under /api/v1 (TDD 3.2). Better Auth mounts its own routes
+// under /api/auth. Every /api/v1 route gets the signed-in user (or null) from
+// sessionMiddleware.
 // Add each new resource as its own file in src/routes and chain it here.
 // Tests create an isolated instance so test routes exercise the real error setup.
-export function createApp() {
-  return new Hono()
+export function createApp({
+  meetingService = createInterestMeetingService(),
+  interestService = createInterestService(),
+  projectsService = createProjectsService(),
+  assignmentCaller = () => ({ isSuperuser: false }),
+  interestLimiter,
+}: {
+  meetingService?: InterestMeetingService;
+  interestService?: InterestService;
+  projectsService?: ProjectsService;
+  assignmentCaller?: () => AssignmentCaller;
+  interestLimiter?: MiddlewareHandler;
+} = {}) {
+  return new Hono<AppEnv>()
     .onError(handleError)
     .notFound(handleNotFound)
+    .route("/api/auth", authRoutes)
     .basePath("/api/v1")
+    .use(sessionMiddleware)
     .route("/health", health)
+    .route("/semesters", semesters)
+    .route("/me", me)
+    .route("/members", members)
+    .route("/projects", createProjectRoutes(projectsService))
+    .route("/", createMemberPositionRoutes(projectsService, assignmentCaller))
+    .route("/interest-meetings", createInterestMeetingRoutes(meetingService))
+    .route("/public/checkin", createPublicCheckinRoutes(meetingService))
+    .route("/public/interest", createPublicInterestRoutes(interestService, interestLimiter))
+    .route("/audit-log", auditLogRoutes)
     .route("/email-templates", emailTemplateRoutes);
 }
 

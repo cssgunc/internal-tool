@@ -7,3 +7,5 @@ CREATE TABLE "email_templates" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+ALTER TABLE "email_templates" ADD CONSTRAINT "email_templates_updated_by_members_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."members"("id") ON DELETE set null ON UPDATE no action;

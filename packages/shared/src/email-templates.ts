@@ -1,22 +1,12 @@
 import { z } from "zod";
-
-export const EMAIL_KINDS = [
-  "invite",
-  "password_reset",
-  "applications_open",
-  "closing_reminder",
-  "exec_rejection",
-  "returner_congrats",
-  "education_congrats",
-  "rejection",
-] as const;
-
-export type EmailKind = (typeof EMAIL_KINDS)[number];
+import { EMAIL_KINDS } from "./enums";
+import type { EmailKind } from "./enums";
 
 export const emailKindSchema = z.enum(EMAIL_KINDS);
 
 export const ALLOWED_PLACEHOLDERS: Record<EmailKind, readonly string[]> = {
-  invite: ["firstName", "siteUrl", "inviteToken"],
+  // The invite link already carries its token, so templates never see the raw token.
+  invite: ["firstName", "siteUrl", "inviteUrl"],
   password_reset: ["firstName", "resetUrl"],
   applications_open: ["firstName", "siteUrl", "closingDate"],
   closing_reminder: ["firstName", "siteUrl", "closingDate"],

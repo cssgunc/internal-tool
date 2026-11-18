@@ -1,0 +1,401 @@
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, mock, spyOn } from "bun:test";
+import { errorResponseSchema, submitInterestResponseSchema } from "@internal-tool/shared";
+import type {
+  ErrorResponse,
+  SubmitInterestResponse,
+  submitInterestRequestSchema,
+} from "@internal-tool/shared";
+import { hc } from "hono/client";
+import type { InferRequestType, InferResponseType } from "hono/client";
+import type { MiddlewareHandler } from "hono";
+import type { z } from "zod";
+import type { api as webApi } from "../../web/src/lib/api";
+import { createApp } from "../src/app";
+import type { AppType } from "../src/app";
+import { createInterestService } from "../src/services/interest";
+import type { InterestCheckinWrite, InterestStore } from "../src/services/interest";
+import { rateLimit } from "../src/lib/rate-limit";
+
+const semesterId = "00000000-0000-4000-8000-000000000001";
+const otherSemesterId = "00000000-0000-4000-8000-000000000002";
+const meeting = {
+  id: "00000000-0000-4000-8000-000000000003",
+  semesterId,
+  startsAt: new Date("2026-10-28T19:00:00-04:00"),
+};
+const submission = {
+  firstName: "Fake",
+  lastName: "Applicant",
+  email: "fake@example.com",
+  interests: ["project"],
+  turnstileToken: "valid-token",
+} satisfies z.input<typeof submitInterestRequestSchema>;
+
+beforeEach(() => {
+  spyOn(globalThis, "fetch").mockImplementation((() =>
+    Promise.resolve(Response.json({ success: true }))) as unknown as typeof fetch);
+});
+
+afterEach(() => {
+  mock.restore();
+});
+
+function setup(
+  options: {
+    semester?: string | null;
+    checkedInAt?: Date;
+    interestLimiter?: MiddlewareHandler;
+  } = {}
+) {
+  let currentSemester = options.semester === undefined ? semesterId : options.semester;
+  let clock = options.checkedInAt ?? new Date("2026-10-28T20:00:00-04:00");
+  const records = new Map<string, InterestCheckinWrite>();
+  let storageCalls = 0;
+  const store: InterestStore = {
+    async currentSemesterId() {
+      storageCalls++;
+      return currentSemester ?? undefined;
+    },
+    async meetingByToken(token) {
+      storageCalls++;
+      if (token === "meeting-token") return meeting;
+      if (token === "old-token") return { ...meeting, semesterId: otherSemesterId };
+      return undefined;
+    },
+    async existingAttendance(semester, email) {
+      storageCalls++;
+      const existing = records.get(`${semester}:${email.toLowerCase()}`);
+      return existing && { attended: existing.attended };
+    },
+    async upsertCheckin(values) {
+      storageCalls++;
+      const key = `${values.semesterId}:${values.email.toLowerCase()}`;
+      const existing = records.get(key);
+      records.set(key, { ...values, attended: (existing?.attended ?? false) || values.attended });
+    },
+  };
+  const service = createInterestService(store, () => clock);
+  const app = createApp({
+    interestService: service,
+    interestLimiter: options.interestLimiter,
+  });
+  let address = "192.0.2.1";
+  const mockServer = {
+    requestIP: () => ({ address, family: "IPv4", port: 1234 }),
+  };
+  const request = (input: string | Request | URL, init?: RequestInit) =>
+    app.request(input, init, mockServer);
+  const client = hc<AppType>("http://localhost", { fetch: request });
+  return {
+    app,
+    client,
+    request,
+    records,
+    storageCalls: () => storageCalls,
+    setIp(value: string) {
+      address = value;
+    },
+    setClock(value: Date) {
+      clock = value;
+    },
+    setSemester(value: string) {
+      currentSemester = value;
+    },
+  };
+}
+
+describe("POST /api/v1/public/interest", () => {
+  it("joins the current semester's list without a token and without attendance", async () => {
+    const { client, records } = setup();
+    const res = await client.api.v1.public.interest.$post({ json: submission });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ success: true });
+    expect(records.size).toBe(1);
+    const { turnstileToken: _ignored, ...expectedRecord } = submission;
+    expect([...records.values()][0]).toEqual({
+      ...expectedRecord,
+      semesterId,
+      meetingId: null,
+      attended: false,
+      submittedAt: new Date("2026-10-29T00:00:00Z"),
+    });
+  });
+
+  it.each([
+    ["before start", "2026-10-28T18:59:59-04:00", false],
+    ["at start", "2026-10-28T19:00:00-04:00", true],
+    ["during the meeting", "2026-10-28T20:00:00-04:00", true],
+    ["last millisecond of the Eastern day", "2026-10-28T23:59:59.999-04:00", true],
+    ["next midnight", "2026-10-29T00:00:00-04:00", false],
+  ])("calculates attendance %s using the server clock", async (_label, checkedInAt, attended) => {
+    const { client, records } = setup({ checkedInAt: new Date(checkedInAt) });
+    const res = await client.api.v1.public.interest.$post({
+      json: { ...submission, token: "meeting-token" },
+    });
+    expect(res.status).toBe(201);
+    expect([...records.values()][0]?.attended).toBe(attended);
+    expect([...records.values()][0]?.meetingId).toBe(meeting.id);
+  });
+
+  it("updates repeat submissions, normalizes email, and preserves attendance", async () => {
+    const { client, records, setClock } = setup();
+    await client.api.v1.public.interest.$post({
+      json: { ...submission, email: " FAKE@EXAMPLE.COM ", token: "meeting-token" },
+    });
+    setClock(new Date("2026-10-29T12:00:00-04:00"));
+    const res = await client.api.v1.public.interest.$post({
+      json: {
+        ...submission,
+        firstName: " Updated ",
+        interests: ["education"],
+      },
+    });
+    expect(res.status).toBe(201);
+    expect(records.size).toBe(1);
+    const { turnstileToken: _ignored, ...expectedRecord } = submission;
+    expect([...records.values()][0]).toEqual({
+      ...expectedRecord,
+      firstName: "Updated",
+      interests: ["education"],
+      semesterId,
+      meetingId: null,
+      attended: true,
+      submittedAt: new Date("2026-10-29T16:00:00Z"),
+    });
+  });
+
+  it("upgrades an earlier tokenless check-in to attended", async () => {
+    const { client, records } = setup();
+    await client.api.v1.public.interest.$post({ json: submission });
+    expect([...records.values()][0]?.attended).toBe(false);
+    await client.api.v1.public.interest.$post({ json: { ...submission, token: "meeting-token" } });
+    expect(records.size).toBe(1);
+    expect([...records.values()][0]?.attended).toBe(true);
+  });
+
+  it("keeps attendance false when neither submission counted", async () => {
+    const { client, records } = setup({ checkedInAt: new Date("2026-10-29T12:00:00-04:00") });
+    await client.api.v1.public.interest.$post({ json: submission });
+    await client.api.v1.public.interest.$post({ json: { ...submission, token: "meeting-token" } });
+    expect(records.size).toBe(1);
+    expect([...records.values()][0]?.attended).toBe(false);
+  });
+
+  it("does not carry attendance into a different semester", async () => {
+    const { client, records, setSemester } = setup();
+    await client.api.v1.public.interest.$post({ json: { ...submission, token: "meeting-token" } });
+    setSemester(otherSemesterId);
+    await client.api.v1.public.interest.$post({ json: submission });
+    expect(records.size).toBe(2);
+    expect(records.get(`${semesterId}:${submission.email}`)?.attended).toBe(true);
+    expect(records.get(`${otherSemesterId}:${submission.email}`)?.attended).toBe(false);
+  });
+
+  it("returns 409 CONFLICT when no semester is current and stores nothing", async () => {
+    const { client, records } = setup({ semester: null });
+    const res = await client.api.v1.public.interest.$post({ json: submission });
+    expect(res.status).toBe(409);
+    expect(errorResponseSchema.parse(await res.json()).error.code).toBe("CONFLICT");
+    expect(records.size).toBe(0);
+  });
+
+  it.each(["unknown-token", "old-token"])("rejects %s without saving", async (token) => {
+    const { client, records } = setup();
+    const res = await client.api.v1.public.interest.$post({ json: { ...submission, token } });
+    expect(res.status).toBe(404);
+    expect(errorResponseSchema.parse(await res.json()).error.code).toBe("NOT_FOUND");
+    expect(records.size).toBe(0);
+  });
+
+  it("returns the same success for a filled honeypot without accessing storage or Turnstile", async () => {
+    const fetchMock = spyOn(globalThis, "fetch");
+    const { client, records, storageCalls } = setup();
+    const res = await client.api.v1.public.interest.$post({
+      json: { ...submission, website: "bot.example" },
+    });
+    expect(res.status).toBe(201);
+    expect(submitInterestResponseSchema.parse(await res.json())).toEqual({ success: true });
+    expect(records.size).toBe(0);
+    expect(storageCalls()).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("discards honeypots even with invalid fields and no current semester", async () => {
+    const { request, records, storageCalls } = setup({ semester: null });
+    for (const website of ["filled", " ", "x".repeat(2049)]) {
+      const res = await request("/api/v1/public/interest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ website }),
+      });
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({ success: true });
+    }
+    expect(records.size).toBe(0);
+    expect(storageCalls()).toBe(0);
+  });
+
+  it("validates normal submissions before accessing storage", async () => {
+    const { client, records, storageCalls } = setup();
+    const res = await client.api.v1.public.interest.$post({
+      json: {
+        ...submission,
+        email: "bad",
+        firstName: " ",
+        interests: [],
+      },
+    });
+    expect(res.status).toBe(400);
+    const body = errorResponseSchema.parse(await res.json());
+    expect(body.error.code).toBe("VALIDATION");
+    expect(body.error.fields?.email).toBeDefined();
+    expect(body.error.fields?.firstName).toBeDefined();
+    expect(body.error.fields?.interests).toBeDefined();
+    expect(records.size).toBe(0);
+    expect(storageCalls()).toBe(0);
+  });
+
+  it("returns standard validation errors for malformed and non-object JSON", async () => {
+    const { request, storageCalls } = setup();
+    for (const body of ["{", "", "null", "[]", '"text"']) {
+      const res = await request("/api/v1/public/interest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      expect(res.status).toBe(400);
+      expect(errorResponseSchema.parse(await res.json()).error.code).toBe("VALIDATION");
+    }
+    expect(storageCalls()).toBe(0);
+  });
+
+  it("ignores client-supplied attendance, semester, and timestamps", async () => {
+    const { request, records } = setup();
+    const res = await request("/api/v1/public/interest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...submission,
+        attended: true,
+        semesterId: otherSemesterId,
+        submittedAt: "2000-01-01",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const saved = [...records.values()][0]!;
+    expect(saved.attended).toBe(false);
+    expect(saved.semesterId).toBe(semesterId);
+    expect(saved.submittedAt).toEqual(new Date("2026-10-29T00:00:00Z"));
+    expect("website" in saved).toBe(false);
+    expect("turnstileToken" in saved).toBe(false);
+  });
+
+  it("admits 100 students sharing an IP, blocks request 101, and resets after one minute", async () => {
+    let now = 0;
+    spyOn(performance, "now").mockImplementation(() => now);
+    const cloudflare = spyOn(globalThis, "fetch");
+    const { client, records, storageCalls, setIp } = setup();
+    for (let i = 0; i < 100; i++) {
+      const res = await client.api.v1.public.interest.$post({
+        json: {
+          ...submission,
+          token: "meeting-token",
+          email: `student-${i}@example.com`,
+          turnstileToken: `token-${i}`,
+        },
+      });
+      expect(res.status).toBe(201);
+    }
+    expect(records.size).toBe(100);
+    expect([...records.values()].every((record) => record.attended)).toBe(true);
+    expect(cloudflare).toHaveBeenCalledTimes(100);
+    const callsBeforeLimit = storageCalls();
+    const limited = await client.api.v1.public.interest.$post({ json: submission });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("60");
+    const body = errorResponseSchema.parse(await limited.json());
+    expect(body.error.code).toBe("RATE_LIMITED");
+    expect(storageCalls()).toBe(callsBeforeLimit);
+    expect(cloudflare).toHaveBeenCalledTimes(100);
+
+    setIp("192.0.2.2");
+    expect((await client.api.v1.public.interest.$post({ json: submission })).status).toBe(201);
+    setIp("192.0.2.1");
+    now = 59_999;
+    const stillLimited = await client.api.v1.public.interest.$post({ json: submission });
+    expect(stillLimited.status).toBe(429);
+    expect(stillLimited.headers.get("Retry-After")).toBe("1");
+    now = 60_000;
+    expect((await client.api.v1.public.interest.$post({ json: submission })).status).toBe(201);
+  });
+
+  it("runs an injected limiter before parsing JSON, honeypot handling, or verification", async () => {
+    const cloudflare = spyOn(globalThis, "fetch");
+    const { request, storageCalls } = setup({
+      interestLimiter: rateLimit({ windowMs: 60_000, max: 1 }),
+    });
+    const post = (body: string) =>
+      request("/api/v1/public/interest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+    expect((await post(JSON.stringify({ website: "bot.example" }))).status).toBe(201);
+    const parse = spyOn(Request.prototype, "json");
+    for (const body of [
+      "{",
+      JSON.stringify({ website: "bot.example" }),
+      JSON.stringify(submission),
+    ]) {
+      const res = await post(body);
+      expect(res.status).toBe(429);
+      expect(errorResponseSchema.parse(await res.json()).error.code).toBe("RATE_LIMITED");
+      expect(res.headers.get("Retry-After")).toBe("60");
+    }
+    expect(parse).not.toHaveBeenCalled();
+    expect(cloudflare).not.toHaveBeenCalled();
+    expect(storageCalls()).toBe(0);
+  });
+
+  it("verifies Turnstile tokens and rejects failed or missing tokens", async () => {
+    const { client, records, storageCalls } = setup();
+    // Failed Cloudflare verification
+    spyOn(globalThis, "fetch").mockImplementationOnce((() =>
+      Promise.resolve(
+        Response.json({ success: false, "error-codes": ["invalid-input-response"] })
+      )) as unknown as typeof fetch);
+    const failedRes = await client.api.v1.public.interest.$post({ json: submission });
+    expect(failedRes.status).toBe(400);
+    const failedBody = errorResponseSchema.parse(await failedRes.json());
+    expect(failedBody.error.code).toBe("VALIDATION");
+    expect(failedBody.error.fields?.turnstileToken).toBe(
+      "Complete the verification and try again."
+    );
+    expect(records.size).toBe(0);
+
+    // Missing token fails without calling Cloudflare
+    const fetchSpy = spyOn(globalThis, "fetch");
+    fetchSpy.mockClear();
+    const missingRes = await client.api.v1.public.interest.$post({
+      json: { ...submission, turnstileToken: "" },
+    });
+    expect(missingRes.status).toBe(400);
+    const missingBody = errorResponseSchema.parse(await missingRes.json());
+    expect(missingBody.error.fields?.turnstileToken).toBe(
+      "Complete the verification and try again."
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(storageCalls()).toBe(0);
+  });
+
+  it("preserves frontend request, success, and error inference", () => {
+    type Submit = typeof webApi.api.v1.public.interest.$post;
+    expectTypeOf<InferRequestType<Submit>["json"]>().toEqualTypeOf<
+      z.input<typeof submitInterestRequestSchema>
+    >();
+    expectTypeOf<InferResponseType<Submit, 201>>().toEqualTypeOf<SubmitInterestResponse>();
+    expectTypeOf<InferResponseType<Submit, 400>>().toEqualTypeOf<ErrorResponse>();
+    expectTypeOf<InferResponseType<Submit, 404>>().toEqualTypeOf<ErrorResponse>();
+    expectTypeOf<InferResponseType<Submit, 409>>().toEqualTypeOf<ErrorResponse>();
+  });
+});
