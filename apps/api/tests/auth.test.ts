@@ -164,6 +164,7 @@ describe("auth:create-user script", () => {
           BETTER_AUTH_SECRET: "x".repeat(32),
           BETTER_AUTH_URL: "https://admin.example.org",
           TURNSTILE_SECRET_KEY: "fake-real-secret",
+          RESEND_API_KEY: "re_test_key",
         },
       }
     );

@@ -1,6 +1,6 @@
 // Sends one test email through whichever provider EMAIL_PROVIDER picks.
 //
-//   npm run email:test -- you@example.com
+//   bun run email:test you@example.com     (from apps/api)
 //
 // With EMAIL_PROVIDER=console (the default outside production) the email is only
 // logged. Set EMAIL_PROVIDER=resend and RESEND_API_KEY in .env to really send it.
@@ -13,7 +13,7 @@ import { sendEmail } from "../email/index";
 async function main() {
   const to = process.argv[2];
   if (!to || !z.email().safeParse(to).success) {
-    console.error("Usage: npm run email:test -- <email address>");
+    console.error("Usage: bun run email:test <email address>");
     process.exit(1);
   }
 

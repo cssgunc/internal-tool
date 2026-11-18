@@ -10,6 +10,8 @@ const testSecrets = [
 const productionAuth = {
   BETTER_AUTH_SECRET: "x".repeat(32),
   BETTER_AUTH_URL: "https://example.com",
+  // Production sends through Resend by default, so it needs a key.
+  RESEND_API_KEY: "re_test_key",
 };
 
 describe("public protection environment", () => {

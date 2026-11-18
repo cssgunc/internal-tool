@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import type { db as Database } from "../db";
 import { account, session, user, verification } from "../db/schema";
+import { sendPasswordResetEmail } from "../email/password-reset";
 import { env } from "../env";
 
 // Better Auth with email + password; sign-up is disabled because the tool is
@@ -19,8 +20,10 @@ function createAuth(db: typeof Database) {
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,
-      sendResetPassword: async () => {
-        // TODO(email service)
+      // Not awaited, so the response time doesn't reveal whether the email exists.
+      // sendEmail never throws; a failed send is logged there.
+      sendResetPassword: async ({ user, url }) => {
+        void sendPasswordResetEmail({ user, url });
       },
     },
     // Rejects requests sent from other websites. It's on by default, but Better Auth
