@@ -58,6 +58,8 @@ bun run auth:create-user --email you@example.com --password "at least 8 characte
 
 Then sign in with `POST /api/auth/sign-in/email`. The script refuses to run when `NODE_ENV=production`.
 
+A login alone has no member access. Add `--member` to also create an active member linked to it, or `--superuser` for a superuser member (needed for superuser pages such as `/semesters`). If a member with that email already exists, it's linked instead.
+
 ## Commands
 
 Run from the repo root.
