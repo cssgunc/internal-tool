@@ -19,7 +19,7 @@ const SAMPLE_DATA: Record<string, string> = {
   firstName: "Sarah",
   siteUrl: "https://example.com",
   projectName: "Community Connect",
-  inviteToken: "sample-invite-token",
+  inviteUrl: "https://cssg.example/invite/sample-token",
   resetUrl: "https://example.com/reset",
   closingDate: "November 15",
 };

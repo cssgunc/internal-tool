@@ -1,11 +1,11 @@
-import { db } from "./index";
+import type { db } from "./index";
 import { emailTemplates } from "./schema";
 
-const defaultTemplates = [
+export const defaultTemplates = [
   {
     kind: "invite" as const,
     subject: "Welcome to CSSG!",
-    body: "Hi {{firstName}},\n\nWelcome to CSSG! Visit {{siteUrl}} to get started.",
+    body: "Hi {{firstName}},\n\nWelcome to CSSG! Set up your account here: {{inviteUrl}}\n\nAfterwards, you can sign in at {{siteUrl}}.",
   },
   {
     kind: "password_reset" as const,
@@ -44,13 +44,11 @@ const defaultTemplates = [
   },
 ];
 
-async function seedEmailTemplates() {
-  await db
+// Inserts the default template for every kind. Rerunning it never overwrites a
+// template someone has edited. Run by `bun run db:seed` (see seed.ts).
+export async function seedEmailTemplates(database: Pick<typeof db, "insert">) {
+  await database
     .insert(emailTemplates)
     .values(defaultTemplates)
     .onConflictDoNothing({ target: emailTemplates.kind });
-
-  console.log("Email templates seeded successfully!");
 }
-
-await seedEmailTemplates();
