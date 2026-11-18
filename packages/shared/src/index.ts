@@ -12,4 +12,5 @@ export * from "./interest";
 export * from "./lists";
 export * from "./me";
 export * from "./members";
+export * from "./projects";
 export * from "./semesters";
