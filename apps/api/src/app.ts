@@ -5,9 +5,11 @@ import { handleError, handleNotFound } from "./lib/errors";
 import type { ApiErrorStatus } from "./lib/errors";
 import { sessionMiddleware } from "./lib/session";
 import type { AppEnv } from "./lib/session";
+import { auditLogRoutes } from "./routes/audit-log";
 import { authRoutes } from "./routes/auth";
 import { health } from "./routes/health";
 import { me } from "./routes/me";
+import { members } from "./routes/members";
 import { semesters } from "./routes/semesters";
 import { createInterestMeetingRoutes, createPublicCheckinRoutes } from "./routes/interest-meetings";
 import { createInterestMeetingService } from "./services/interest-meetings";
@@ -46,11 +48,13 @@ export function createApp({
     .route("/health", health)
     .route("/semesters", semesters)
     .route("/me", me)
+    .route("/members", members)
     .route("/projects", createProjectRoutes(projectsService))
     .route("/", createMemberPositionRoutes(projectsService, assignmentCaller))
     .route("/interest-meetings", createInterestMeetingRoutes(meetingService))
     .route("/public/checkin", createPublicCheckinRoutes(meetingService))
-    .route("/public/interest", createPublicInterestRoutes(interestService));
+    .route("/public/interest", createPublicInterestRoutes(interestService))
+    .route("/audit-log", auditLogRoutes);
 }
 
 export const app = createApp();
