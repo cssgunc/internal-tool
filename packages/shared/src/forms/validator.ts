@@ -7,12 +7,30 @@ export interface ValidationResult {
   errors: ValidationErrors;
 }
 
+// A section shows when the answer it depends on is one of its showIf values. For a
+// multi_select, it shows when any chosen value is one of them.
 export function isSectionVisible(section: FormSection, answers: Record<string, unknown>): boolean {
   if (!section.showIf) {
     return true;
   }
+  const { in: values } = section.showIf;
   const answerVal = answers[section.showIf.field];
-  return section.showIf.in.includes(answerVal as string);
+  if (Array.isArray(answerVal)) {
+    return answerVal.some((value) => values.includes(value as string));
+  }
+  return values.includes(answerVal as string);
+}
+
+// Field types whose answer is a single string.
+const TEXT_TYPES = new Set(["short_text", "long_text", "email", "url", "select"]);
+
+function isWebUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 function hasValue(val: unknown): boolean {
@@ -64,11 +82,63 @@ export function validateAnswers(
       const answered = hasValue(val);
 
       if (field.required && !answered) {
-        errors[field.id] = `${field.label} is required.`;
+        // Shown under the question itself, so it doesn't repeat the label.
+        errors[field.id] = "Required.";
         continue;
       }
 
       if (!answered) {
+        continue;
+      }
+
+      // Answers end up in a JSON column, so reject the wrong shape outright.
+      if (TEXT_TYPES.has(field.type) && typeof val !== "string") {
+        errors[field.id] = "Invalid answer.";
+        continue;
+      }
+
+      if (field.type === "checkbox" && typeof val !== "boolean") {
+        errors[field.id] = "Invalid answer.";
+        continue;
+      }
+
+      if (field.type === "number" || field.type === "rating") {
+        if (typeof val !== "number" || !Number.isFinite(val)) {
+          errors[field.id] = "Please enter a number.";
+          continue;
+        }
+        if (field.integer && !Number.isInteger(val)) {
+          errors[field.id] = "Please enter a whole number.";
+          continue;
+        }
+        if (field.min !== undefined && val < field.min) {
+          errors[field.id] = `Must be at least ${field.min}.`;
+          continue;
+        }
+        if (field.max !== undefined && val > field.max) {
+          errors[field.id] = `Must be at most ${field.max}.`;
+          continue;
+        }
+      }
+
+      if (field.type === "multi_select") {
+        if (!Array.isArray(val) || !val.every((item) => typeof item === "string")) {
+          errors[field.id] = "Invalid answer.";
+          continue;
+        }
+        if (field.options && !val.every((item) => field.options?.includes(item))) {
+          errors[field.id] = "Please select only valid options.";
+          continue;
+        }
+        // Without repeats, an answer can't be longer than the list of options.
+        if (new Set(val).size !== val.length) {
+          errors[field.id] = "Please select each option only once.";
+          continue;
+        }
+      }
+
+      if (field.type === "url" && typeof val === "string" && !isWebUrl(val)) {
+        errors[field.id] = "Please enter a full link, starting with https://.";
         continue;
       }
 
